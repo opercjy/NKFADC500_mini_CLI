@@ -3,7 +3,7 @@
 
 ## 1. 개요
 
-이 프로젝트는 Notice 사의 FADC500 모듈을 위한 데이터 획득 및 분석 프레임워크입니다. 프로젝트는 두 개의 주요 프로그램으로 구성됩니다.
+이 프로젝트는 Notice 사의 NKFADC500MHz 4ch mini 모듈을 위한 데이터 획득 및 분석 프레임워크입니다. 프로젝트는 두 개의 주요 프로그램으로 구성됩니다.
 
 * **`frontend_500_mini`**: 데이터 획득(DAQ)을 담당하는 프로그램입니다. 하드웨어 설정을 파일 기반으로 관리하고, 수집된 데이터를 ROOT TTree 형식으로 직접 저장합니다.
 * **`production_500_mini`**: `frontend`로 생성된 데이터 파일을 읽어와 전하량을 계산하여 정제된 파일을 만들거나, 대화형으로 파형을 시각화하는 분석 프로그램입니다.
@@ -215,3 +215,83 @@ make uninstall
     ```
 
 <!-- end list -->
+
+실행시 예
+````bash
+[opercjy@localhost cosmic]$ frontend_500_mini -f setttings.cfg -o cosmic_test1 -n 10000
+Info: nkusb_open_device: opening device Vendor ID = 0x547, Product ID = 0x1502, Serial ID = 1
+vme controller found!
+Info: nkusb_open_device: super speed device opened (bus = 2, address = 5, serial id = 1).
+Now NKFADC500 is ready.
+ch1 calibration delay = 19
+ch2 calibration delay = 20
+ch3 calibration delay = 18
+ch4 calibration delay = 15
+DRAM(0) is aligned, delay = 5, bitslip = 0
+DRAM(1) is aligned, delay = 5, bitslip = 0
+DRAM(2) is aligned, delay = 4, bitslip = 0
+DRAM(3) is aligned, delay = 5, bitslip = 0
+DRAM(4) is aligned, delay = 4, bitslip = 0
+DRAM(5) is aligned, delay = 4, bitslip = 0
+DRAM(6) is aligned, delay = 4, bitslip = 0
+DRAM(7) is aligned, delay = 4, bitslip = 0
+---- DAQ Settings Summary ----
+ * SID: 1
+ * Recording Length (rl=8): 1024 ns
+ * Coincidence Width (cw): 200 ns
+ * Threshold (thr): 50 (ADC counts)
+ * Polarity (pol): Negative
+-----------------------------
+
+Starting DAQ for 10000 events. Data will be saved to 'cosmic_test1.root'
+DAQ started at: 2025-07-16 12:48:52
+Processing event: 1000... (2025-07-16 12:48:53)
+Processing event: 2000... (2025-07-16 12:48:53)
+Processing event: 3000... (2025-07-16 12:48:54)
+Processing event: 4000... (2025-07-16 12:48:55)
+Processing event: 5000... (2025-07-16 12:48:55)
+Processing event: 6000... (2025-07-16 12:48:56)
+Processing event: 7000... (2025-07-16 12:48:57)
+Processing event: 8000... (2025-07-16 12:48:57)
+Processing event: 9000... (2025-07-16 12:48:58)
+Processing event: 10000... (2025-07-16 12:48:59)
+
+---- DAQ Summary ----
+DAQ finished at: 2025-07-16 12:48:59
+Total elapsed time: 6.82 seconds
+Total events collected: 10000
+Average trigger rate: 1466.69 Hz
+
+--- Trigger Type Statistics ---
+  - TCB trigger       :    10000 times (100.00%)
+-------------------------------
+
+--- Trigger Pattern Statistics ---
+Top 10 most frequent trigger patterns:
+  - Pattern     1 (0x0001): 7175 times (71.75%)
+  - Pattern 00256 (0x0100): 1928 times (19.28%)
+  - Pattern 00016 (0x0010): 780 times (7.80%)
+  - Pattern 00257 (0x0101): 57 times (0.57%)
+  - Pattern 00272 (0x0110): 24 times (0.24%)
+  - Pattern 00017 (0x0011): 21 times (0.21%)
+  - Pattern 00273 (0x0111): 15 times (0.15%)
+--------------------------------
+Data successfully saved to cosmic_test1.root
+DAQ System shut down properly.
+[opercjy@localhost cosmic]$ production_500_mini -w -i cosmic_test1.root
+Info: Run Info Loaded. Polarity=0, Sampling Rate Divisor=1, Time/Sample=2 ns
+Processing 10000 events to create a refined dataset...
+Done.
+Refined data saved to: cosmic_test1.root.prod
+[opercjy@localhost cosmic]$ production_500_mini -d -i cosmic_test1.root
+Info: Run Info Loaded. Polarity=0, Sampling Rate Divisor=1, Time/Sample=2 ns
+
+[메인 메뉴] e: 개별 이벤트 보기 | c: 누적 플롯 보기 | q: 종료 > e
+[이벤트 0/9999] n: 다음, p: 이전, j [번호]: 점프, q: 메뉴로 > q
+
+[메인 메뉴] e: 개별 이벤트 보기 | c: 누적 플롯 보기 | q: 종료 > c
+Generating cumulative waveform plots... please wait.
+
+[메인 메뉴] e: 개별 이벤트 보기 | c: 누적 플롯 보기 | q: 종료 > q
+Displaying canvases. Close all ROOT windows to exit.
+````
