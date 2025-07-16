@@ -43,7 +43,7 @@ sudo dnf install cmake gcc-c++ libusb libusb-devel libusbx-devel
 
 # Debian / Ubuntu 기반 시스템
 sudo apt-get install cmake g++ libusb-1.0-0 libusb-1.0-0-dev
-
+```
 
 > **Note**: ROOT는 공식 홈페이지(root.cern)를 참조하여 별도로 설치해야 합니다.
 
