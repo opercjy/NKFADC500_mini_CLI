@@ -312,3 +312,35 @@ Generating cumulative waveform plots... please wait.
 [메인 메뉴] e: 개별 이벤트 보기 | c: 누적 플롯 보기 | q: 종료 > q
 Displaying canvases. Close all ROOT windows to exit.
 ````
+visualize_waveforms.cpp 실행 결과, 
+````
+root -l visualize_waveforms.C
+root [0]
+Processing visualize_waveforms.C...
+File 'cosmic_test_20ns.root' opened successfully.
+Found 10000 events in 'fadc_tree'.
+
+Generating cumulative plots... This may take a moment.
+Done.
+
+[이벤트 0/9999] n: 다음, p: 이전, j [번호]: 점프, q: 종료 > n
+
+[이벤트 1/9999] n: 다음, p: 이전, j [번호]: 점프, q: 종료 > n
+
+[이벤트 2/9999] n: 다음, p: 이전, j [번호]: 점프, q: 종료 > n
+
+[이벤트 3/9999] n: 다음, p: 이전, j [번호]: 점프, q: 종료 > n
+
+[이벤트 4/9999] n: 다음, p: 이전, j [번호]: 점프, q: 종료 > n
+
+[이벤트 5/9999] n: 다음, p: 이전, j [번호]: 점프, q: 종료 > n
+
+[이벤트 6/9999] n: 다음, p: 이전, j [번호]: 점프, q: 종료 > n
+
+[이벤트 7/9999] n: 다음, p: 이전, j [번호]: 점프, q: 종료 > ^C
+````
+<img width="1196" height="823" alt="image" src="https://github.com/user-attachments/assets/b2f6db14-67c8-4d5d-bad1-dc41d8696c66" />
+<img width="1193" height="825" alt="image" src="https://github.com/user-attachments/assets/8ab8a258-98fa-4b1e-ada2-517e74cd2c3e" />
+
+
+
