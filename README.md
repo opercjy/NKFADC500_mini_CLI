@@ -22,6 +22,7 @@
   * [cite\_start]**메모리**: 채널당 32k 샘플 FIFO, 총 8GB DDR3 DRAM 데이터 버퍼 [cite: 16, 17]
   * [cite\_start]**인터페이스**: USB 3.0 (최대 100 MB/s) [cite: 20]
 
+````
 -----
 
 ## 3\. 프로젝트 구성
