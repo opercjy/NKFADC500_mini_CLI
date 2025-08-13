@@ -9,9 +9,10 @@
 #include "TGraph.h"
 #include "TStyle.h"
 #include "TApplication.h"
+#include "TAxis.h"
 
 // 이 스크립트의 메인 함수입니다.
-void visualize_waveforms(const char* filename = "cosmic_test_20ns.root") {
+void visualize_waveforms(const char* filename) {
     // --- 1. 파일 및 TTree 열기 ---
     TFile *file = TFile::Open(filename, "READ");
     if (!file || file->IsZombie()) {
@@ -35,10 +36,16 @@ void visualize_waveforms(const char* filename = "cosmic_test_20ns.root") {
     tree->SetBranchAddress("waveform2", &wf[1]);
     tree->SetBranchAddress("waveform3", &wf[2]);
     tree->SetBranchAddress("waveform4", &wf[3]);
-
-    // 파형 샘플 개수 및 시간 정보 설정 (512개, 샘플당 2ns)
-    const int n_samples = 512;
-    const double time_step = 2.0; // ns
+    
+    // 첫 번째 이벤트로 파형 샘플 수 확인
+    tree->GetEntry(0);
+    if (!wf[0] || wf[0]->empty()) {
+        std::cerr << "Error: Waveform data is empty or invalid." << std::endl;
+        file->Close();
+        return;
+    }
+    const int n_samples = wf[0]->size();
+    const double time_step = 2.0; // ns, TODO: run_info에서 읽어오도록 개선 가능
     const double time_range = n_samples * time_step;
 
     // --- 3. 전체 이벤트 누적 파형 그리기 ---
@@ -88,14 +95,13 @@ void visualize_waveforms(const char* filename = "cosmic_test_20ns.root") {
 
         for (int ch = 0; ch < 4; ++ch) {
             c_event->cd(ch + 1)->SetGrid();
-            // TGraph는 std::vector<uint16_t>를 직접 받을 수 없으므로 double로 변환
             std::vector<double> wf_double(wf[ch]->begin(), wf[ch]->end());
             TGraph *g = new TGraph(n_samples, time_axis.data(), wf_double.data());
             g->SetTitle(Form("Event %lld - Channel %d;Time (ns);ADC Counts", current_entry, ch + 1));
             g->SetLineColor(kBlue + 2);
             g->SetLineWidth(2);
-            g->GetYaxis()->SetRangeUser(0, 4096); // Y축 범위 고정
-            g->Draw("AL"); // 'A'는 축을, 'L'은 선을 의미
+            g->GetYaxis()->SetRangeUser(0, 4096);
+            g->Draw("AL");
         }
         c_event->Update();
 
@@ -113,18 +119,15 @@ void visualize_waveforms(const char* filename = "cosmic_test_20ns.root") {
     file->Close();
 }
 
-// 스크립트를 독립적으로 실행하기 위한 main 함수
 #if !defined(__CLING__)
 int main(int argc, char **argv) {
-    TApplication app("App", &argc, argv);
-    const char* filename = "cosmic_test_20ns.root";
-    if (argc > 1) {
-        filename = argv[1];
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <input_root_file>" << std::endl;
+        return 1;
     }
-    visualize_waveforms(filename);
+    TApplication app("App", &argc, argv);
+    visualize_waveforms(argv[1]);
     std::cout << "\nAll ROOT windows closed. Exiting application." << std::endl;
-    // app.Run()을 호출하지 않으면 바로 종료되므로,
-    // 대화형 뷰어 루프가 끝나면 프로그램이 종료되도록 합니다.
     return 0;
 }
 #endif
