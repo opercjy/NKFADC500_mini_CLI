@@ -197,14 +197,17 @@ make uninstall
 
 ### 6.1. 1단계: 데이터 획득 (`frontend_500_mini`)
 
-먼저 `frontend_500_mini`를 실행하여 데이터를 수집하고 `.root` 파일을 생성합니다.
+먼저 `frontend_500_mini`를 실행하여 데이터를 수집하고 `.root` 파일을을 -n (이벤트 수) 또는 -t (시간) 옵션 중 하나를 반드시 선택해야 합니다.
 
 ```bash
 # 기본 사용법
-./build/frontend_500_mini -f <설정파일> -o <출력파일_기본이름> -n <이벤트_수>
+./build/frontend_500_mini -f <설정파일> -o <출력파일_기본이름> [-n <이벤트_수> | -t <시간(초)>]
 
-# 예시
+# 예시 1: 100,000개 이벤트 획득
 ./build/frontend_500_mini -f config/settings.cfg -o run001_cosmic -n 100000
+
+# 예시 2: 300초(5분) 동안 데이터 획득
+./build/frontend_500_mini -f config/settings.cfg -o run002_long_run -t 300
 ```
 
 ### 6.2. 2단계: 데이터 처리 및 시각화 (`production_500_mini`)
