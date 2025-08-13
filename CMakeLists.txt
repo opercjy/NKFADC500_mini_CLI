@@ -33,7 +33,7 @@ install(DIRECTORY config/ DESTINATION etc/frontend_500_mini)
 
 
 # ==============================================================================
-# 빌드 타겟 2: 데이터 분석/시각화 프로그램 (production_500_mini)
+# 빌드 타겟 2: 데이터 분석/후처리 프로그램 (production_500_mini)
 # ==============================================================================
 add_executable(production_500_mini src/production_main.cpp src/Processor.cpp)
 target_link_libraries(production_500_mini
@@ -44,9 +44,21 @@ install(TARGETS production_500_mini DESTINATION bin)
 
 
 # ==============================================================================
+# 빌드 타겟 3: 데이터 시각화 프로그램 (visualize_waveforms)
+# ==============================================================================
+add_executable(visualize_waveforms src/visualize_waveforms.cpp)
+target_link_libraries(visualize_waveforms
+    PRIVATE
+    ${ROOT_LIBRARIES}
+)
+install(TARGETS visualize_waveforms DESTINATION bin)
+install(DIRECTORY scripts/ DESTINATION etc/scripts)
+
+
+# ==============================================================================
 # 제거 타겟 정의
 # ==============================================================================
 add_custom_target(uninstall
-    COMMAND xargs rm -v < ${CMAKE_CURRENT_BINARY_DIR}/install_manifest.txt
+    COMMAND xargs rm -vrf < ${CMAKE_CURRENT_BINARY_DIR}/install_manifest.txt
     COMMENT "Uninstalling the project from ${CMAKE_INSTALL_PREFIX}..."
 )
