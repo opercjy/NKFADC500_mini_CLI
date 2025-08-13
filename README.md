@@ -1,97 +1,211 @@
 
-# FADC500 DAQ 및 분석 프로그램
+````markdown
+# FADC500 DAQ 및 분석 프레임워크
 
-## 1. 개요
+## 1\. 개요
 
-이 프로젝트는 Notice 사의 NKFADC500MHz 4ch mini 모듈을 위한 데이터 획득 및 분석 프레임워크입니다. 프로젝트는 두 개의 주요 프로그램으로 구성됩니다.
+[cite\_start]이 프로젝트는 **Notice社의 NKFADC500MHz 4채널 FADC 모듈**을 위한 C++ 기반 데이터 획득(DAQ) 및 분석 프레임워크입니다. [cite: 6] [cite\_start]하드웨어 매뉴얼에 명시된 FADC의 다양한 기능(파형/피크 데이터 동시 획득, 다중 트리거 모드, 제로 서프레션 등)을 최대한 활용할 수 있도록 설계되었습니다. [cite: 13, 14, 15]
 
-* **`frontend_500_mini`**: 데이터 획득(DAQ)을 담당하는 프로그램입니다. 하드웨어 설정을 파일 기반으로 관리하고, 수집된 데이터를 ROOT TTree 형식으로 직접 저장합니다.
-* **`production_500_mini`**: `frontend`로 생성된 데이터 파일을 읽어와 전하량을 계산하여 정제된 파일을 만들거나, 대화형으로 파형을 시각화하는 분석 프로그램입니다.
+본 프레임워크는 데이터 획득, 후처리, 시각화의 역할을 명확히 분리하여 안정성과 재사용성을 극대화했습니다.
 
-기존의 ROOT 스크립트 기반 DAQ 방식에서 벗어나, 데이터 획득과 분석이 분리된 안정적이고 재사용 가능한 C++ 프로젝트로 개발되었습니다.
+## 2\. 하드웨어 사양 (FADC500 Module)
 
----
+본 소프트웨어는 아래의 하드웨어 사양을 기반으로 합니다:
 
-## 2. 주요 기능
+  * [cite\_start]**ADC**: 8채널, 500 MSa/s, 12-bit Flash ADC [cite: 7]
+  * [cite\_start]**입력**: 50Ω Lemo 커넥터, 2V (peak-to-peak) 다이나믹 레인지 [cite: 8, 10]
+  * [cite\_start]**대역폭**: 250 MHz 아날로그 대역폭 (125 MHz로 선택 가능) [cite: 9, 47]
+  * **트리거**:
+      * [cite\_start]내장 리딩 엣지 판별기 (Leading Edge Discriminator) [cite: 11]
+      * [cite\_start]다중 트리거 모드: Pulse Count, Pulse Width, Peak Sum, TDC [cite: 221, 238, 245, 247]
+      * [cite\_start]채널별 트리거 로직 조합을 위한 Trigger Lookup Table (LUT) [cite: 209, 250]
+  * [cite\_start]**메모리**: 채널당 32k 샘플 FIFO, 총 8GB DDR3 DRAM 데이터 버퍼 [cite: 16, 17]
+  * [cite\_start]**인터페이스**: USB 3.0 (최대 100 MB/s) [cite: 20]
 
-* **분리된 역할**: 데이터 획득(`frontend`)과 분석(`production`) 프로그램을 분리하여 각 기능에 집중합니다.
-* **설정 파일 기반 DAQ**: DAQ 파라미터를 텍스트 파일(`settings.cfg`)로 관리하여, 코드 재컴파일 없이 실험 조건 변경이 용이합니다.
-* **TTree 직접 저장**: 중간 바이너리 파일 생성 없이, 수집된 데이터를 실시간으로 파싱하여 ROOT TTree 형식으로 직접 저장합니다.
-* **명령어 라인 인터페이스 (CLI)**: 각 프로그램은 명확한 옵션을 통해 실행을 제어합니다.
-* **안전한 중단 기능**: `Ctrl+C` 입력 시 진행 중이던 DAQ 작업을 안전하게 마무리하고 데이터를 저장한 후 종료합니다.
-* **상세한 실행 정보**: DAQ 실행 시 상세한 통계 정보를 제공하여 데이터 품질을 검증할 수 있습니다.
-* **데이터 후처리 및 시각화**: 수집된 데이터로부터 전하량을 계산하거나, 개별/누적 파형을 대화형으로 시각화하는 기능을 제공합니다.
-* **표준 빌드 시스템**: `CMake`를 사용하여 두 프로그램을 한 번에 빌드하고 체계적으로 관리합니다.
+-----
 
----
+## 3\. 프로젝트 구성
 
-## 3. 필요 사항 (Prerequisites)
+### 3.1. 소프트웨어 아키텍처
 
-### 3.1. 시스템 및 소프트웨어
+본 프로젝트는 하드웨어 제어부터 사용자 애플리케이션까지 다음과 같은 계층화된 구조를 가집니다.
 
-본 프로그램을 빌드하고 실행하기 위해 다음 패키지들이 시스템에 설치되어 있어야 합니다.
+```mermaid
+graph TD
+    subgraph "사용자 영역 (User Space)"
+    A["<b>1. 응용 프로그램</b><br>frontend_500_mini"] --> B;
+    B["<b>2. ROOT C++ 래퍼</b><br>lib...ROOT.so"] --> C;
+    C["<b>3. 핵심 C 라이브러리</b><br>libNotice...so, libusb3com.so"] --> D;
+    D["<b>4. 저수준 USB 제어</b><br>libnkusb.so"] --> E;
+    end
+    subgraph "시스템 영역 (System Space)"
+    E["<b>5. 시스템 USB 라이브러리</b><br>libusb-1.0.so"] --> F["<b>6. OS 커널</b>"];
+    end
+````
 
-* **운영체제**: Linux (Rocky Linux 9에서 테스트됨)
-* **빌드 도구**: `cmake`, `gcc-c++`
-* **필수 라이브러리**:
-    * `ROOT 6`: 데이터 분석 프레임워크.
-    * [cite_start]`libusb`, `libusb-devel`, `libusbx-devel`: USB 1.0 인터페이스 및 고속 인터페이스 확장성을 위한 라이브러리. [cite: 2]
+### 3.2. 프로그램 상세
 
-```bash
-# Rocky Linux / RHEL / CentOS 기반 시스템
-sudo dnf install cmake gcc-c++ libusb libusb-devel libusbx-devel
+  * **`frontend_500_mini`**: 하드웨어 설정 및 데이터 획득을 담당하는 핵심 DAQ 프로그램.
+  * **`production_500_mini`**: 수집된 데이터로부터 전하량 등 물리량을 계산하는 후처리 프로그램.
+  * **`visualize_waveforms`**: 수집된 파형 데이터를 상세하게 시각화하고 탐색하는 전용 뷰어 프로그램.
+  * **`scripts/view_waveform_pro.C`**: ROOT 인터프리터 환경에서 파형을 분석하는 고급 매크로.
 
-# Debian / Ubuntu 기반 시스템
-sudo apt-get install cmake g++ libusb-1.0-0 libusb-1.0-0-dev
-```
+-----
 
-> **Note**: ROOT는 공식 홈페이지(root.cern)를 참조하여 별도로 설치해야 합니다.
+## 4\. 설치 가이드
 
-### 3.2. Notice 라이브러리 설치
+### 4.1. 1단계: 시스템 요구사항 및 라이브러리 준비
 
-[cite\_start]하드웨어 제어를 위한 전용 라이브러리를 반드시 먼저 설치해야 합니다. [cite: 1]
+1.  **필수 패키지 설치**:
+    ```bash
+    # RHEL/CentOS/Rocky 기반
+    sudo dnf install cmake gcc-c++ libusb-devel
 
-1.  [cite\_start]**라이브러리 파일 복사**: 제공된 `notice.tgz` 압축 파일을 원하는 위치(예: `/usr/local/`)에 해제합니다. [cite: 1]
+    # Debian/Ubuntu 기반
+    sudo apt-get install cmake g++ libusb-1.0-0-dev
+    ```
+2.  **ROOT 6**를 [공식 홈페이지](https://root.cern/)를 참조하여 시스템에 설치합니다.
+3.  Notice社에서 제공하는 **`notice.tgz`** 압축 파일을 준비합니다.
+
+### 4.2. 2단계: Notice 라이브러리 설치
+
+1.  `notice.tgz` 파일을 `/usr/local/`에 압축 해제합니다.
     ```bash
     sudo tar -zxvf notice.tgz -C /usr/local/
     ```
-2.  [cite\_start]**환경 설정 스크립트 수정**: `/usr/local/notice/notice_env.sh` 파일을 열어 `NKHOME`과 `ROOTHOME` 경로가 실제 설치된 위치와 일치하는지 확인하고 수정합니다. [cite: 1]
-3.  [cite\_start]**라이브러리 컴파일 및 설치**: `notice_env.sh`를 적용한 후, 각 라이브러리 소스 디렉토리로 이동하여 `make install`을 실행합니다. [cite: 3] (관리자 권한 필요)
+2.  환경 설정 스크립트 `/usr/local/notice/notice_env.sh`를 열어 `NKHOME`과 `ROOTHOME` 경로가 실제 설치된 위치와 일치하는지 확인 및 수정합니다.
+3.  터미널에 환경 변수를 적용하고, 각 라이브러리를 순서대로 컴파일 및 설치합니다. (관리자 권한 필요)
     ```bash
     source /usr/local/notice/notice_env.sh
+
     cd $NKHOME/src/nkusb/nkusb && make clean && sudo make install
     cd $NKHOME/src/nkusb/nkusbroot && make clean && sudo make install
+
     cd $NKHOME/src/usb3com/usb3com && make clean && sudo make install
     cd $NKHOME/src/usb3com/usb3comroot && make clean && sudo make install
+
     cd $NKHOME/src/nkfadc500/nkfadc500 && make clean && sudo make install
     cd $NKHOME/src/nkfadc500/nkfadc500root && make clean && sudo make install
     ```
 
-### 3.3. USB 장치 접근 권한 설정
+### 4.3. 3단계: USB 장치 접근 권한 설정
 
-매번 `sudo`를 사용하여 프로그램을 실행하지 않으려면, FADC500 장치에 대한 접근 권한을 일반 사용자에게 부여해야 합니다. 아래 명령어를 사용하여 `udev` 규칙을 추가합니다.
+FADC500 장치에 일반 사용자 접근 권한을 부여합니다.
 
 ```bash
-# 1. udev 규칙 파일을 생성하고 내용을 추가합니다.
 echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0547", ATTRS{idProduct}=="1502", MODE="0666"' | sudo tee /etc/udev/rules.d/50-nkfadc500.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
 
-# 2. udev 규칙을 시스템에 다시 로드합니다.
-sudo udevadm control --reload-rules
-sudo udevadm trigger
+### 4.4. 4단계: 프로젝트 빌드
+
+프로젝트 최상위 디렉토리에서 아래 명령어를 실행하여 모든 프로그램을 빌드합니다.
+
+```bash
+mkdir -p build && cd build
+cmake ..
+make
+```
+
+빌드가 성공하면 `build/bin` 디렉토리 내에 모든 실행 파일이 생성됩니다.
+
+### 4.5. 5단계: 환경 변수 설정 (선택 사항)
+
+매번 `./build/bin/frontend_500_mini` 와 같이 긴 경로를 입력하지 않으려면, `build/bin` 디렉토리를 시스템의 `PATH` 환경 변수에 추가합니다.
+
+`~/.bashrc` 또는 `~/.bash_profile` 파일 맨 아래에 다음 라인을 추가하세요. (`/path/to/your/project`는 실제 프로젝트 경로로 변경)
+
+```bash
+export PATH="/path/to/your/project/build/bin:$PATH"
+```
+
+파일 저장 후, 터미널을 새로 시작하거나 `source ~/.bashrc` 명령을 실행하여 변경사항을 적용합니다.
+
+-----
+
+## 5\. 사용법
+
+### 5.1. 데이터 획득 (`frontend_500_mini`)
+
+`config/settings.cfg` 파일을 수정한 후, `frontend_500_mini`를 실행하여 데이터를 수집합니다.
+
+```bash
+# 예시 1: 10만 개 이벤트 획득
+frontend_500_mini -f config/settings.cfg -o run001_cosmic -n 100000
+
+# 예시 2: 300초(5분) 동안 데이터 획득
+frontend_500_mini -f config/settings.cfg -o run002_long_run -t 300
+```
+
+### 5.2. 데이터 분석 및 시각화
+
+#### 방법 1: 데이터 후처리 (`production_500_mini`)
+
+전하량을 계산하여 `*.prod.root` 파일을 생성합니다.
+
+```bash
+production_500_mini -w -i run001_cosmic.root
+```
+
+#### 방법 2: 전용 시각화 프로그램 (`visualize_waveforms`)
+
+컴파일된 뷰어로 데이터를 대화형으로 탐색합니다.
+
+```bash
+visualize_waveforms run001_cosmic.root
 ```
 
 -----
 
-## 4\. 상세 설정 가이드 (`config/settings.cfg`)
+## 6\. 설정 상세 (`config/settings.cfg`)
 
-`settings.cfg` 파일의 각 파라미터에 대한 상세 설명입니다.
+### 6.1. `trigger_lookup_table` 상세 설명
 
-  * [cite\_start]`sid = 1`: 장비에 할당된 고유 ID (Serial ID). [cite: 4]
-  * **`sampling_rate = 1`**: ADC 샘플링 속도 **분주비**. (1: 500MSa/s -\> 2ns/sample, 2: 250MSa/s -\> 4ns/sample, 4: 125MSa/s -\> 8ns/sample)
-  * `recording_length = 8`: 트리거 발생 시 저장할 파형의 길이. (1=128ns, 2=256ns, 4=512ns, 8=1us, ...)
-  * `threshold = 50`: 트리거를 발생시킬 신호의 최소 높이 (ADC counts).
-  * `polarity = 0`: 입력 신호의 극성. (0: Negative, 1: Positive)
-  * `coincidence_width = 1000`: 여러 채널의 동시 트리거를 판별할 시간 창(window)의 폭 (단위: ns).
+[cite\_start]4개 채널(CH1\~4)의 내부 트리거 발생 여부(`A0`\~`A3`)를 조합하여 최종 트리거를 만드는 16비트 하드웨어 진리표입니다. [cite: 250, 251] 값은 **십진수**로 입력합니다.
+
+  * **입력 (Address)**: 4비트 이진수 `A3 A2 A1 A0` (CH4, CH3, CH2, CH1 순서)
+  * [cite\_start]**출력 (Data)**: `trigger_lookup_table` 값의 `(A3A2A1A0)`번째 비트가 `1`이면 최종 트리거가 발생합니다. [cite: 209]
+
+| A3 | A2 | A1 | A0 | Data |
+|---|---|---|---|---|
+| 1 | 1 | 1 | 1 | bit15 |
+| 1 | 1 | 1 | 0 | bit14 |
+| ... | ... | ... | ... | ... |
+| 0 | 0 | 0 | 1 | bit1 |
+| 0 | 0 | 0 | 0 | bit0 |
+
+#### 시나리오별 예제
+
+  * **모든 채널 OR**: `trigger_lookup_table = 65534` (0xFFFE)
+  * **모든 채널 AND**: `trigger_lookup_table = 32768` (0x8000)
+
+  * **시나리오 1: CH1에서만 트리거 발생**
+
+      * **논리**: `A0`
+      * **해당 패턴**: `0001` (A0=1)
+      * **비트 위치**: 1 (`0001`은 십진수로 1)
+      * **설정값**: `2` (계산: `1 << 1`)
+
+  * **시나리오 2: CH1과 CH2가 동시에 (Coincidence) 발생**
+
+      * **논리**: `A1 and A0`
+      * **해당 패턴**: `0011` (A1=1, A0=1)
+      * **비트 위치**: 3 (`0011`은 십진수로 3)
+      * **설정값**: `8` (계산: `1 << 3`)
+  * **(추가) A1과 A0가 모두 1인 모든 패턴을 활성**
+      * 0011 (A0, A1)
+      * 0111 (A0, A1, A2)
+      * 1011 (A0, A1, A3)
+      * 1111 (A0, A1, A2, A3)
+      * 패턴들의 비트 위치는 각각 3, 7, 11, 15
+      * 2^3 + 2^7 + 2^11 + 2^15 = 8 + 128 + 2048 + 32768 = `34952`
+
+  * **시나리오 3: CH1, CH2, CH3, CH4 중 하나라도 발생 (OR)**
+
+      * **논리**: `A0 or A1 or A2 or A3`
+      * **해당 패턴**: `0001`, `0010`, `0011`, ... , `1111` (하나라도 1이 포함된 모든 경우)
+      * **비트 패턴**: `1111 1111 1111 1110` (이진수)
+      * **설정값**: `65534` (0xFFFE)
 
 ### 트리거 관련 상세 파라미터
 
@@ -115,126 +229,26 @@ sudo udevadm trigger
   * **4 (2^2)**: Software Trigger
   * **8 (2^3)**: External Trigger
 
-> **예시**: `trigger_enable = 9` (1 + 8, 내부 트리거와 외부 트리거를 모두 사용)
+ **예시**: `trigger_enable = 9` (1 + 8, 내부 트리거와 외부 트리거를 모두 사용)
 
-#### `trigger_lookup_table` (채널 로직 조합)
 
-4개 채널의 내부 트리거 신호(A0\~A3)를 조합하여 최종 "Self Trigger"를 만드는 \*\*하드웨어 진리표(Truth Table)\*\*입니다. 설정 파일에는 **십진수**로 값을 입력합니다.
-| A3 | A2 | A1 | A0 | Data  |
-|----|----|----|----|-------|
-| 1  | 1  | 1  | 1  | bit15 |
-| 1  | 1  | 1  | 0  | bit14 |
-| 1  | 1  | 0  | 1  | bit13 |
-| 1  | 1  | 0  | 0  | bit12 |
-| 1  | 0  | 1  | 1  | bit11 |
-| 1  | 0  | 1  | 0  | bit10 |
-| 1  | 0  | 0  | 1  | bit9  |
-| 1  | 0  | 0  | 0  | bit8  |
-| 0  | 1  | 1  | 1  | bit7  |
-| 0  | 1  | 1  | 0  | bit6  |
-| 0  | 1  | 0  | 1  | bit5  |
-| 0  | 1  | 0  | 0  | bit4  |
-| 0  | 0  | 1  | 1  | bit3  |
-| 0  | 0  | 1  | 0  | bit2  |
-| 0  | 0  | 0  | 1  | bit1  |
-| 0  | 0  | 0  | 0  | bit0  |
-  * **입력 (Address)**: 4비트 숫자 `A3 A2 A1 A0` (CH4, CH3, CH2, CH1 순)
-  * **출력 (Data)**: `trigger_lookup_table` 값의 `(A3A2A1A0)`번째 비트가 `1`이면 트리거 발생.
+### 6.2. 주요 파라미터 표
 
-**기본 예시**
+| 파라미터 | 설명 | 단위 / 범위 | 관련 함수 |
+|---|---|---|---|
+| `sid` | 장비 고유 ID | 정수 | `NKFADC500open` |
+| `sampling_rate`| ADC 샘플링 속도 분주비. **1**: 500MSa/s, **2**: 250MSa/s | 1, 2, 4, ... | `NKFADC500write_DSR` |
+| `recording_length`| 저장할 파형 길이. (예: 8 -\> 1024ns) | 1(128ns), 2(256ns),... | [cite\_start]`TCBIBSwrite_RL` [cite: 429] |
+| `threshold` | 트리거 판별을 위한 신호 높이 문턱값. | ADC counts (1 \~ 4095) | `NKFADC500write_THR` |
+| `polarity` | 입력 신호 극성. **0**: Negative, **1**: Positive. | 0 또는 1 | `NKFADC500write_POL`|
+| `coincidence_width`| 동시 계수 판별 시간 창. [cite\_start]| ns (8 \~ 32,760) [cite: 426] | `NKFADC500write_CW` |
+| `waveform_delay` | 트리거 시점 기준, 파형 저장 시작 지연. [cite\_start]| ns (0 \~ 32,760) [cite: 442] | `NKFADC500write_DLY` |
+| `trigger_mode` | 내부 트리거 로직 선택 (비트마스크). 1:Pulse Count, 2:Pulse Width, 4:Peak Sum, 8:TDC | 1\~15 | [cite\_start]`TCBIBSwrite_TM` [cite: 469] |
+| `trigger_enable` | 최종 트리거 소스 선택 (비트마스크). 1:Self, 2:Pedestal, 4:Software, 8:External | 1\~15 | `NKFADC500write_TRIGENABLE` |
 
-  * **모든 채널 OR**: `trigger_lookup_table = 65534` (0xFFFE)
-  * **모든 채널 AND**: `trigger_lookup_table = 32768` (0x8000)
-
-**고급 예시: Veto 및 Coincidence 로직**
-
-  * **시나리오 1: CH2(Signal) 신호가 있고, CH1(Veto)과 CH3(Veto) 신호가 없을 때만 트리거**
-
-      * **논리**: `A1 and (not A0) and (not A2)`
-      * **패턴** (`A3A2A1A0`): `0010` (유일)
-      * **설정값**: `trigger_lookup_table = 4` (계산: `1 << 2`)
-
-  * **시나리오 2: CH2(Signal) 신호가 있고, 동시에 CH1(Veto) 또는 CH3(Veto) 신호가 있을 때만 트리거**
-
-      * **논리**: `A1 and (A0 or A2)`
-      * **패턴** (`A3A2A1A0`): `0011` (CH1+CH2), `0110` (CH3+CH2)
-      * **설정값**: `trigger_lookup_table = 72` (계산: `(1 << 3) + (1 << 6)`)
-
------
-
-## 5\. 빌드 및 설치
-
-### 5.1. 환경 변수 설정
-
-```bash
-source /usr/local/notice/notice_env.sh
 ```
-
-### 5.2. 빌드
-
-프로젝트 최상위 디렉토리에서 아래 명령어를 실행하면 `build/` 폴더 내에 `frontend_500_mini`와 `production_500_mini` 실행 파일이 모두 생성됩니다.
-
-```bash
-mkdir build
-cd build
-cmake ..
-make
+</immersive>
 ```
-
-### 5.3. 설치 (선택 사항)
-
-```bash
-# 설정된 경로에 설치
-make install
-
-# 설치된 파일 제거
-make uninstall
-```
-
------
-
-## 6\. 사용법
-
-### 6.1. 1단계: 데이터 획득 (`frontend_500_mini`)
-
-먼저 `frontend_500_mini`를 실행하여 데이터를 수집하고 `.root` 파일을을 -n (이벤트 수) 또는 -t (시간) 옵션 중 하나를 반드시 선택해야 합니다.
-
-```bash
-# 기본 사용법
-./build/frontend_500_mini -f <설정파일> -o <출력파일_기본이름> [-n <이벤트_수> | -t <시간(초)>]
-
-# 예시 1: 100,000개 이벤트 획득
-./build/frontend_500_mini -f config/settings.cfg -o run001_cosmic -n 100000
-
-# 예시 2: 300초(5분) 동안 데이터 획득
-./build/frontend_500_mini -f config/settings.cfg -o run002_long_run -t 300
-```
-
-### 6.2. 2단계: 데이터 처리 및 시각화 (`production_500_mini`)
-
-다음으로 `production_500_mini`를 사용하여 생성된 파일을 분석합니다.
-
-  * **데이터 정제 모드 (`-w`)**: 전하량 정보를 계산하여 `*.root.prod` 파일을 생성합니다.
-
-    ```bash
-    # 사용법
-    ./build/production_500_mini -w -i <입력_root_파일>
-
-    # 예시
-    ./build/production_500_mini -w -i run001_cosmic.root
-    ```
-
-  * **대화형 시각화 모드 (`-d`)**: 원본 또는 정제된 파일을 열어 파형과 히스토그램을 확인합니다.
-
-    ```bash
-    # 사용법
-    ./build/production_500_mini -d -i <입력_root_파일>
-
-    # 예시
-    ./build/production_500_mini -d -i run001_cosmic.root.prod
-    ```
-
-<!-- end list -->
 
 실행시 예
 ````bash
