@@ -1,5 +1,5 @@
 
-````markdown
+
 # FADC500 DAQ 및 분석 프레임워크
 
 ## 1\. 개요
@@ -12,17 +12,16 @@
 
 본 소프트웨어는 아래의 하드웨어 사양을 기반으로 합니다:
 
-  * [cite\_start]**ADC**: 8채널, 500 MSa/s, 12-bit Flash ADC [cite: 7]
-  * [cite\_start]**입력**: 50Ω Lemo 커넥터, 2V (peak-to-peak) 다이나믹 레인지 [cite: 8, 10]
+  * [cite\_start]**ADC**: 4채널, 500 MSa/s, 12-bit Flash ADC [cite: 7]
+  * [cite\_start]**입력**: 50Ω BNC 커넥터, 2V (peak-to-peak) 다이나믹 레인지 [cite: 8, 10]
   * [cite\_start]**대역폭**: 250 MHz 아날로그 대역폭 (125 MHz로 선택 가능) [cite: 9, 47]
   * **트리거**:
       * [cite\_start]내장 리딩 엣지 판별기 (Leading Edge Discriminator) [cite: 11]
       * [cite\_start]다중 트리거 모드: Pulse Count, Pulse Width, Peak Sum, TDC [cite: 221, 238, 245, 247]
       * [cite\_start]채널별 트리거 로직 조합을 위한 Trigger Lookup Table (LUT) [cite: 209, 250]
-  * [cite\_start]**메모리**: 채널당 32k 샘플 FIFO, 총 8GB DDR3 DRAM 데이터 버퍼 [cite: 16, 17]
+  * [cite\_start]**메모리**: 채널당 32k 샘플 FIFO, 총 4GB DDR4 DRAM 데이터 버퍼 [cite: 16, 17]
   * [cite\_start]**인터페이스**: USB 3.0 (최대 100 MB/s) [cite: 20]
 
-````
 -----
 
 ## 3\. 프로젝트 구성
@@ -66,7 +65,7 @@ graph TD
     sudo apt-get install cmake g++ libusb-1.0-0-dev
     ```
 2.  **ROOT 6**를 [공식 홈페이지](https://root.cern/)를 참조하여 시스템에 설치합니다.
-3.  Notice社에서 제공하는 **`notice.tgz`** 압축 파일을 준비합니다.
+3.  NoticeKorea에서 제공하는 **`notice.tgz`** 압축 파일을 준비합니다.
 
 ### 4.2. 2단계: Notice 라이브러리 설치
 
