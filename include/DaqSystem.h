@@ -5,7 +5,7 @@
 #include <memory>
 #include <vector>
 #include <cstdint>
-#include <atomic> // std::atomic 사용을 위해 추가
+#include <atomic>
 #include "NoticeNKFADC500ROOT.h"
 #include "usb3comroot.h"
 
@@ -41,9 +41,9 @@ public:
 
     bool loadConfig(const std::string& config_path);
     bool initialize();
-    void run(int n_events, const std::string& outfile_base);
+    void run(int n_events, int duration_sec, const std::string& outfile_base);
     void shutdown();
-    void stop(); // DAQ를 중지시키는 함수 추가
+    void stop();
 
 private:
     // DAQ 파라미터들을 저장할 구조체
@@ -73,7 +73,6 @@ private:
     std::unique_ptr<usb3comroot> m_usb;
     std::unique_ptr<NKNKFADC500> m_fadc;
     
-    // DAQ 실행 상태를 나타내는 플래그 (여러 스레드에서 접근 가능하도록 atomic 사용)
     std::atomic<bool> m_is_running;
 
     void printSettingsSummary();
