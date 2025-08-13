@@ -141,7 +141,7 @@ bool DaqSystem::initialize() {
     return true;
 }
 
-void DaqSystem::run(int n_events, const std::string& outfile_base) {
+void DaqSystem::run(int n_events, int duration_sec, const std::string& outfile_base) {
     m_is_running = true;
 
     std::string root_filename = outfile_base + ".root";
@@ -151,7 +151,6 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
         return;
     }
     
-    // --- 1. 실행 정보 저장을 위한 TTree 생성 ---
     TTree* run_info_tree = new TTree("run_info", "Run Information");
     run_info_tree->Branch("sid", &m_settings.sid, "sid/I");
     run_info_tree->Branch("sampling_rate", &m_settings.sr, "sampling_rate/l");
@@ -162,9 +161,8 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
     run_info_tree->Branch("trigger_mode", &m_settings.tmode, "trigger_mode/l");
     run_info_tree->Branch("trigger_enable", &m_settings.trig_enable, "trigger_enable/l");
     run_info_tree->Branch("trigger_lookup_table", &m_settings.tlt, "trigger_lookup_table/l");
-    run_info_tree->Fill(); // 설정값으로 한 번만 채움
+    run_info_tree->Fill();
 
-    // --- 2. 이벤트 데이터 저장을 위한 TTree 생성 ---
     TTree* event_tree = new TTree("fadc_tree", "FADC500 Waveform Data");
     EventData event;
     event_tree->Branch("event", &event.local_tnum, "event/i");
@@ -181,7 +179,15 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
     m_fadc->NKFADC500reset(m_settings.sid);
     m_fadc->NKFADC500start(m_settings.sid);
 
-    std::cout << "Starting DAQ for " << n_events << " events. Data will be saved to '" << root_filename << "'" << std::endl;
+    std::cout << "Starting DAQ";
+    if (n_events > 0) {
+        std::cout << " for " << n_events << " events.";
+    }
+    if (duration_sec > 0) {
+        std::cout << " for " << duration_sec << " seconds.";
+    }
+    std::cout << " Data will be saved to '" << root_filename << "'" << std::endl;
+    
     TTimeStamp start_time;
     std::cout << "DAQ started at: " << start_time.AsString("s") << std::endl;
     
@@ -191,7 +197,21 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
     std::map<uint32_t, long> trigger_pattern_counts;
     std::map<uint8_t, long> trigger_type_counts;
 
-    while (m_is_running && evtn < n_events) {
+    while (m_is_running) {
+        if (n_events > 0 && evtn >= n_events) {
+            std::cout << "\nTarget number of events (" << n_events << ") reached." << std::endl;
+            break;
+        }
+        if (duration_sec > 0) {
+            TTimeStamp current_time;
+            double elapsed_time = current_time.GetSec() - start_time.GetSec() + 
+                                  (current_time.GetNanoSec() - start_time.GetNanoSec()) * 1e-9;
+            if (elapsed_time >= duration_sec) {
+                std::cout << "\nTarget duration (" << duration_sec << "s) reached." << std::endl;
+                break;
+            }
+        }
+
         unsigned long bcount = m_fadc->NKFADC500read_BCOUNT(m_settings.sid);
         if(bcount > 0) {
             long bytes_to_read = bcount * 1024;
@@ -199,7 +219,9 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
             m_fadc->NKFADC500read_DATA(m_settings.sid, bcount, data_buffer.data());
             
             long processed_bytes = 0;
-            while(processed_bytes < bytes_to_read && m_is_running && evtn < n_events) {
+            while(processed_bytes < bytes_to_read && m_is_running) {
+                if (n_events > 0 && evtn >= n_events) break;
+
                 const char* packet_ptr = data_buffer.data() + processed_bytes;
                 if(ParsePacket(packet_ptr, event)) {
                     event_tree->Fill();
@@ -208,7 +230,7 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
                     evtn++;
                     processed_bytes += event.data_length * 4;
 
-                    if (evtn / 1000 > last_printed_evtn / 1000) {
+                    if (evtn > 0 && evtn % 1000 == 0 && evtn != last_printed_evtn) {
                         TTimeStamp current_time;
                         std::cout << "Processing event: " << evtn << "... (" << current_time.AsString("s") << ")" << std::endl;
                         last_printed_evtn = evtn;
@@ -230,7 +252,6 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
     std::cout << "Total events collected: " << evtn << std::endl;
     std::cout << "Average trigger rate: " << std::fixed << std::setprecision(2) << rate << " Hz" << std::endl;
 
-    // --- Trigger Type Statistics ---
     std::cout << "\n--- Trigger Type Statistics ---" << std::endl;
     for(const auto& pair : trigger_type_counts) {
         std::string type_name;
@@ -247,8 +268,6 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
     }
     std::cout << "-------------------------------" << std::endl;
 
-
-    // --- Trigger Pattern Statistics ---
     std::cout << "\n--- Trigger Pattern Statistics ---" << std::endl;
     std::vector<std::pair<uint32_t, long>> sorted_patterns;
     for (const auto& pair : trigger_pattern_counts) {
@@ -262,7 +281,7 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
     std::cout << "Top " << patterns_to_show << " most frequent trigger patterns:" << std::endl;
     for (int i = 0; i < patterns_to_show && i < sorted_patterns.size(); ++i) {
         const auto& pattern = sorted_patterns[i];
-        std::cout << "  - Pattern " << std::setw(5) << pattern.first 
+        std::cout << "  - Pattern " << std::setw(5) << std::setfill(' ') << pattern.first 
                   << " (0x" << std::hex << std::setw(4) << std::setfill('0') << pattern.first << std::dec << "): " 
                   << pattern.second << " times (" 
                   << std::fixed << std::setprecision(2) << (100.0 * pattern.second / evtn) << "%)" << std::endl;
@@ -272,11 +291,9 @@ void DaqSystem::run(int n_events, const std::string& outfile_base) {
     }
     std::cout << "--------------------------------" << std::endl;
 
-
-    // --- 3. 파일에 TTree 저장 ---
     outfile->cd();
-    run_info_tree->Write(); // 실행 정보 TTree 저장
-    event_tree->Write();    // 이벤트 데이터 TTree 저장
+    run_info_tree->Write();
+    event_tree->Write();
     outfile->Close();
 
     std::cout << "Data successfully saved to " << root_filename << std::endl;
