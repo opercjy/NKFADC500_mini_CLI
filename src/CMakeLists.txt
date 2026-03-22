@@ -7,7 +7,8 @@ add_executable(frontend_500_mini
     frontend_main.cpp 
     BinaryDaqManager.cpp
     Fadc500Device.cpp
-    # (ELog.cc, ConfigParser.cc 등은 추후 필요시 여기에 추가)
+    ELog.cpp             # <--- 추가됨!
+    ConfigParser.cpp     # <--- 추가됨!
 )
 target_include_directories(frontend_500_mini PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../objects/include)
 target_link_libraries(frontend_500_mini PRIVATE 

@@ -4,6 +4,10 @@
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 project(NKFADC500_mini CXX)
 
+# [추가된 부분] ROOT 6.32+ 딕셔너리 설치 매크로 에러 방지용 표준 변수 로드
+include(GNUInstallDirs)
+set(CMAKE_INSTALL_LIBDIR "lib")
+
 # [출력 경로 설정] 실행 파일은 bin/, 라이브러리와 딕셔너리는 lib/ 로 자동 배치
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)

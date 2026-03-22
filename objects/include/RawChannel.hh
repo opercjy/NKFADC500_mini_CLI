@@ -21,7 +21,7 @@ public:
     }
 
     const std::vector<unsigned short>& GetSamples() const { return fSamples; }
-    int GetNPoints() const const { return fSamples.size(); }
+    int GetNPoints() const { return fSamples.size(); }
 
 private:
     int fChId;

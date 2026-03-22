@@ -14,13 +14,14 @@ public:
     BinaryDaqManager(RunInfo* runInfo);
     ~BinaryDaqManager();
 
-    void Start(const std::string& outFileName);
+    // 💡 maxEvents 파라미터 부활
+    void Start(const std::string& outFileName, int maxEvents = 0, int maxTime = 0);
     void Stop();
     bool IsRunning() const { return fIsRunning.load(); }
 
 private:
-    void ProducerWorker();
-    void ConsumerWorker(const std::string& outFileName);
+    void ProducerWorker(int maxTime);
+    void ConsumerWorker(const std::string& outFileName, int maxEvents); // 💡 인자 추가
 
     RunInfo* fRunInfo;
     Fadc500Device* fDevice;
@@ -29,9 +30,8 @@ private:
     std::thread fProducerThread;
     std::thread fConsumerThread;
 
-    // [핵심] 메모리 파편화를 막는 두 개의 풀(Pool)
-    RawBufferPool fDataQueue; // 꽉 찬 데이터가 대기하는 큐
-    RawBufferPool fFreeQueue; // 쓰기가 끝나 비어있는 버퍼가 대기하는 큐
+    RawBufferPool fDataQueue; 
+    RawBufferPool fFreeQueue; 
 };
 
 #endif
