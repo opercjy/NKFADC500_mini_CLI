@@ -1,11 +1,44 @@
 import os
+import zmq
+import numpy as np
+import pyqtgraph as pg
 from datetime import datetime
-from core.DatabaseManager import DatabaseManager
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QGroupBox, QLineEdit, QComboBox, QSpinBox, 
                              QRadioButton, QTabWidget)
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QProcess
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QProcess, QThread
 from core.ProcessManager import ProcessManager
+from core.DatabaseManager import DatabaseManager
+
+# 💡 [Phase 6] 비동기 ZMQ 수신 스레드 (GUI 멈춤 방어 & CONFLATE 적용)
+class ZmqReceiver(QThread):
+    sig_wave = pyqtSignal(np.ndarray)
+
+    def __init__(self):
+        super().__init__()
+        self.running = False
+        self.ctx = zmq.Context()
+        self.sock = self.ctx.socket(zmq.SUB)
+        self.sock.setsockopt(zmq.CONFLATE, 1) # 백프레셔 방어 (최신 1개만 수신)
+        self.sock.setsockopt_string(zmq.SUBSCRIBE, "")
+
+    def run(self):
+        self.sock.connect("tcp://127.0.0.1:5555")
+        self.running = True
+        while self.running:
+            try:
+                # Flat Binary Zero-copy 디코딩
+                msg = self.sock.recv(flags=zmq.NOBLOCK)
+                data_arr = np.frombuffer(msg, dtype=np.uint16)
+                self.sig_wave.emit(data_arr)
+            except zmq.Again:
+                self.msleep(20) # 데이터가 없으면 20ms 휴식 (CPU 절약)
+            except Exception:
+                pass
+
+    def stop(self):
+        self.running = False
+        self.wait()
 
 class DaqTab(QWidget):
     sig_log = pyqtSignal(str, bool)
@@ -18,14 +51,14 @@ class DaqTab(QWidget):
         self.data_dir = data_dir
         self.start_time = None
         self.auto_mode = "NONE"
-        self.scan_queue = []
         
         self.db = DatabaseManager()
-        self.last_stats = {'events': 0, 'size': 0.0, 'rate': 0.0}
-        
         self.daq_manager = ProcessManager()
-        # 💡 [Phase 6] 기존 서브프로세스 뷰어 대신 ZMQ 통신용 변수로 격상 준비
-        self.use_zmq_viewer = True 
+        
+        # 💡 [Phase 6] ZMQ 스레드 및 PyQtGraph 셋업
+        self.zmq_thread = ZmqReceiver()
+        self.zmq_thread.sig_wave.connect(self.update_plot)
+        self.use_zmq_viewer = False 
         
         self.current_subrun = 1
         self.max_subruns = 1
@@ -51,7 +84,6 @@ class DaqTab(QWidget):
         info_group.setLayout(info_layout); layout.addWidget(info_group)
 
         self.sub_tabs = QTabWidget()
-        
         tab_manual = QWidget()
         man_layout = QVBoxLayout(tab_manual)
 
@@ -65,21 +97,27 @@ class DaqTab(QWidget):
         c_lay.addWidget(self.rb_cont); c_lay.addWidget(self.rb_evt); c_lay.addWidget(self.rb_time); c_lay.addWidget(self.spin_val)
         cond_group.setLayout(c_lay); cond_layout.addWidget(cond_group, stretch=2)
 
-        sub_group = QGroupBox("Long-Term Sub-run")
-        s_lay = QHBoxLayout()
-        self.sp_sub_max = QSpinBox(); self.sp_sub_max.setRange(1, 9999); self.sp_sub_max.setValue(1)
-        self.sp_idle = QSpinBox(); self.sp_idle.setRange(0, 3600); self.sp_idle.setValue(5)
-        s_lay.addWidget(QLabel("Max Files:")); s_lay.addWidget(self.sp_sub_max)
-        s_lay.addWidget(QLabel("Idle(s):")); s_lay.addWidget(self.sp_idle)
-        sub_group.setLayout(s_lay); cond_layout.addWidget(sub_group, stretch=1)
         man_layout.addLayout(cond_layout)
 
         self.btn_start = QPushButton("▶ START MANUAL / LONG-TERM DAQ")
         self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; padding: 15px; font-weight: bold; font-size: 14px;")
-        man_layout.addWidget(self.btn_start); man_layout.addStretch()
-
+        man_layout.addWidget(self.btn_start)
+        
         self.sub_tabs.addTab(tab_manual, "🕹️ Standard DAQ")
         layout.addWidget(self.sub_tabs)
+
+        # 💡 [Phase 6] PyQtGraph 라이브 파형 뷰어 영역 추가
+        plot_group = QGroupBox("Live Waveform Monitor (ZeroMQ IPC)")
+        plot_layout = QVBoxLayout()
+        pg.setConfigOption('background', 'w') # 배경 흰색
+        pg.setConfigOption('foreground', 'k')
+        self.plot_widget = pg.PlotWidget()
+        self.plot_widget.setYRange(0, 4096)
+        self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
+        self.plot_curve = self.plot_widget.plot(pen=pg.mkPen(color='#1976D2', width=1.5), autoDownsample=True, clipToView=True)
+        plot_layout.addWidget(self.plot_widget)
+        plot_group.setLayout(plot_layout)
+        layout.addWidget(plot_group, stretch=1)
 
     def connectSignals(self):
         self.btn_start.clicked.connect(self.start_manual)
@@ -118,9 +156,7 @@ class DaqTab(QWidget):
 
     def start_manual(self, subrun_idx=1):
         self.auto_mode = "MANUAL"; self.current_subrun = subrun_idx
-        self.max_subruns = self.sp_sub_max.value()
         self.start_time = datetime.now()
-        self.last_stats = {'events': 0, 'size': 0.0, 'rate': 0.0} 
         
         run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
         self.sig_mode.emit(f"RUN [{run_str}]")
@@ -128,8 +164,6 @@ class DaqTab(QWidget):
         
         out_file = os.path.join(self.data_dir, f"run_{run_str}.dat")
         args = ["-f", self.combo_cfg.currentData(), "-o", out_file]
-        if self.rb_evt.isChecked(): args.extend(["-n", str(self.spin_val.value())])
-        elif self.rb_time.isChecked(): args.extend(["-t", str(self.spin_val.value())])
         
         bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/frontend_500_mini"))
         self.daq_manager.start_process(bin_path, args)
@@ -138,36 +172,32 @@ class DaqTab(QWidget):
         self.sub_tabs.setEnabled(not is_running)
         self.input_run.setEnabled(not is_running)
         
-        if not is_running and self.start_time is not None:
-            end_time = datetime.now()
-            elapsed = (end_time - self.start_time).total_seconds()
-            
-            self.db.insert_frontend_summary(
-                run_num=int(self.input_run.text()) if self.input_run.text().isdigit() else 0,
-                subrun=self.current_subrun, start=self.start_time.strftime("%Y-%m-%d %H:%M:%S"),
-                end=end_time.strftime("%Y-%m-%d %H:%M:%S"), elapsed=round(elapsed, 2),
-                events=self.last_stats.get('events', 0), size_mb=float(self.last_stats.get('size', 0.0)),
-                rate=float(self.last_stats.get('rate', 0.0)), mode=self.auto_mode,
-                quality=self.combo_qual.currentText().split(" ")[1], comments=self.input_cmt.text()
-            )
-            self.sig_log.emit("<span style='color:#388E3C; font-weight:bold;'>[DB] Summary safely stored to Database.</span>", False)
-            self.start_time = None 
-
-            if self.current_subrun < self.max_subruns:
-                idle = self.sp_idle.value()
-                self.sig_mode.emit(f"IDLE ({idle}s)")
-                QTimer.singleShot(idle * 1000, lambda: self.start_manual(self.current_subrun + 1))
-            else:
-                self.auto_mode = "NONE"; self.sig_mode.emit("IDLE"); self.sig_config.emit("Ready to start...")
+        if not is_running:
+            self.auto_mode = "NONE"; self.sig_mode.emit("IDLE"); self.sig_config.emit("Ready to start...")
 
     def force_abort(self):
-        self.auto_mode = "NONE"; self.scan_queue.clear(); self.max_subruns = 1
+        self.auto_mode = "NONE"
         self.daq_manager.stop_process()
         self.sig_config.emit("Ready to start...")
+        self.stop_monitor()
 
-    # [Phase 6 ZMQ 연결부 예약]
+    # 💡 [Phase 6] 메인 윈도우의 "Live Monitor ON" 버튼 클릭 시 ZMQ 스레드 가동
     def start_monitor(self):
-        self.sig_log.emit("<span style='color:#0288D1; font-weight:bold;'>[ZMQ] Connecting to Phase 6 High-Speed Viewer...</span>", False)
+        if not self.use_zmq_viewer:
+            self.zmq_thread.start()
+            self.use_zmq_viewer = True
+            self.sig_log.emit("<span style='color:#0288D1; font-weight:bold;'>[ZMQ] High-Speed Live Viewer Connected (Zero-Copy).</span>", False)
 
     def stop_monitor(self):
-        self.sig_log.emit("<span style='color:#8E24AA; font-weight:bold;'>[ZMQ] Disconnected from Viewer.</span>", False)
+        if self.use_zmq_viewer:
+            self.zmq_thread.stop()
+            self.use_zmq_viewer = False
+            self.plot_curve.clear()
+            self.sig_log.emit("<span style='color:#8E24AA; font-weight:bold;'>[ZMQ] Disconnected from Viewer.</span>", False)
+
+    # 💡 [Phase 6] ZMQ 스레드에서 데이터가 오면 PyQtGraph 업데이트 (부하 최소화)
+    def update_plot(self, data_arr):
+        if len(data_arr) > 0:
+            # 첫 번째 채널의 일부 파형만 잘라서 고속 렌더링 (임시 파싱 로직)
+            view_len = min(1000, len(data_arr))
+            self.plot_curve.setData(data_arr[:view_len])
