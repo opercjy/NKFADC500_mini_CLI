@@ -32,10 +32,17 @@ void BinaryDaqManager::Start(const std::string& outFileName, int maxEvents, int 
     auto now = std::chrono::system_clock::now();
     std::time_t start_time_t = std::chrono::system_clock::to_time_t(now);
     
+    FadcBD* bd = fRunInfo->GetFadcBD(0);
+    
     std::cout << "\n\033[1;36m========================================================\033[0m\n";
     std::cout << "\033[1;32m       NKFADC500 Mini Binary DAQ is RUNNING\033[0m\n";
     std::cout << "       [Start Time]  " << std::put_time(std::localtime(&start_time_t), "%Y-%m-%d %H:%M:%S") << "\n";
     std::cout << "       [Target File] " << outFileName << "\n";
+    // 💡 [UX 신규 패치] CLI 배너에도 핵심 파라미터 상세 출력
+    std::cout << "       [Config (1)]  RL: " << bd->GetRL() << " | TLT: 0x" << std::hex << bd->GetTLT() << std::dec << " | CW: " << bd->GetCW(0) << "\n";
+    std::cout << "       [Config (2)]  POL: " << bd->GetPOL(0) << " | DLY: " << bd->GetDLY(0) << " | DACOFF: " << bd->GetDACOFF(0) << "\n";
+    std::cout << "       [Config (3)]  THR: " << bd->GetTHR(0) << "\n";
+    
     if (maxEvents > 0) std::cout << "       [Limit]       " << maxEvents << " Events\n";
     if (maxTime > 0)   std::cout << "       [Limit]       " << maxTime << " Seconds\n";
     std::cout << "\033[1;36m========================================================\033[0m\n\n";
@@ -68,20 +75,20 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
             }
         }
 
-        unsigned int bcount_kb = fDevice->ReadBCOUNT();
+        unsigned int raw_bcount = fDevice->ReadBCOUNT();
 
-        if (bcount_kb == 0xFFFFFFFF || bcount_kb > 16384) { 
+        if (raw_bcount == 0xFFFFFFFF) { 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
 
-        // 💡 [필수 추가] 128KB 강제 정렬! 하드웨어 뻗음 방지
-        bcount_kb = (bcount_kb / 128) * 128;
+        unsigned int bcount_kb = raw_bcount & 0x0000FFFF;
 
         if (bcount_kb == 0) {
             std::this_thread::sleep_for(std::chrono::microseconds(100)); 
             continue;
         }
+        
         if (bcount_kb > 4096) bcount_kb = 4096;
         
         uint32_t total_bytes_to_read = bcount_kb * 1024; 
@@ -105,6 +112,8 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
         fDevice->ReadDATA(bcount_kb, buffer->data);
         buffer->size = total_bytes_to_read;
         fDataQueue.Push(buffer);
+        
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
     }
     
     fDevice->StopDAQ();
@@ -161,7 +170,6 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
             double evt_rate = (current_events - last_print_events) / ui_elapsed_sec;
             double total_elapsed = std::chrono::duration<double>(current_time - perf_start_time).count();
             
-            // 💡 [버그 픽스] \r을 빼고 \n을 넣어서 OS 파이프 버퍼링 체증을 해소!
             std::cout << "[LIVE DAQ] "
                       << "Time: \033[1;32m" << std::fixed << std::setprecision(1) << total_elapsed << "s\033[0m | "
                       << "Events: " << current_events << " | "

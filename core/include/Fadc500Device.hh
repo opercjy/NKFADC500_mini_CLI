@@ -4,6 +4,9 @@
 #include "FadcBD.hh"
 
 class Fadc500Device {
+private:
+    int fSid;
+
 public:
     Fadc500Device(int sid);
     ~Fadc500Device();
@@ -11,13 +14,12 @@ public:
     void Initialize(FadcBD* bdConfig);
     void StartDAQ();
     void StopDAQ();
+    
+    // 💡 [신규 추가] 좀비 상태 해제 및 하드웨어 완전 세척
+    void ClearAndFlushUSB(); 
 
-    // 제조사 공식 API로 대체
     unsigned int ReadBCOUNT();
     void ReadDATA(unsigned int bcount_kb, unsigned char* dest);
-
-private:
-    int fSid;
 };
 
 #endif

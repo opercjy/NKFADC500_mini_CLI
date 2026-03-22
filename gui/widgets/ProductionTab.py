@@ -4,7 +4,7 @@ from core.DatabaseManager import DatabaseManager
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QGroupBox, QLineEdit, QFileDialog, QProgressBar, 
                              QCheckBox, QInputDialog)
-from PyQt5.QtCore import pyqtSignal, Qt  # 💡 [버그픽스] Qt 임포트 추가!
+from PyQt5.QtCore import pyqtSignal, Qt
 from core.ProcessManager import ProcessManager
 
 class ProductionTab(QWidget):
@@ -45,7 +45,7 @@ class ProductionTab(QWidget):
         self.btn_inter.clicked.connect(self.run_interactive)
 
         self.progress = QProgressBar()
-        self.progress.setAlignment(Qt.AlignCenter) # 💡 여기서 Qt가 사용됩니다.
+        self.progress.setAlignment(Qt.AlignCenter) 
         self.progress.setStyleSheet("QProgressBar::chunk { background-color: #4CAF50; }")
         
         action_layout.addWidget(self.chk_wave); action_layout.addWidget(self.btn_batch); action_layout.addWidget(self.btn_inter); action_layout.addWidget(self.progress)
@@ -80,7 +80,7 @@ class ProductionTab(QWidget):
     def run_interactive(self):
         infile = self.input_file.text().strip()
         if not infile: return
-        self.start_time = None # 인터랙티브 모드는 DB 기록 생략
+        self.start_time = None 
         bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/production_500_mini"))
         self.prod_manager.start_process(bin_path, [infile, "-d"])
 
@@ -112,7 +112,8 @@ class ProductionTab(QWidget):
                 speed=self.final_stats.get('speed', 0.0),
                 mode="Waveform" if self.chk_wave.isChecked() else "Fast Physics"
             )
-            self.sig_log.emit("\033[1;32m[DB] Production Summary saved.\033[0m", False)
+            # 💡 [버그픽스] ANSI 제거
+            self.sig_log.emit("<span style='color:#388E3C; font-weight:bold;'>[DB] Production Summary saved.</span>", False)
             self.start_time = None
 
     def force_abort(self):

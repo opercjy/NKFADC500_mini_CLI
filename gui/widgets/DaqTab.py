@@ -11,6 +11,7 @@ class DaqTab(QWidget):
     sig_log = pyqtSignal(str, bool)
     sig_stat = pyqtSignal(dict)
     sig_mode = pyqtSignal(str)
+    sig_config = pyqtSignal(str) 
 
     def __init__(self, data_dir):
         super().__init__()
@@ -25,7 +26,6 @@ class DaqTab(QWidget):
         self.daq_manager = ProcessManager()
         self.mon_process = QProcess()
         
-        # Sub-run 자동화 제어 변수
         self.current_subrun = 1
         self.max_subruns = 1
         
@@ -35,7 +35,6 @@ class DaqTab(QWidget):
     def initUI(self):
         layout = QVBoxLayout(self)
         
-        # 💡 데이터 획득 기록 패널 (Quality, Comments)
         info_group = QGroupBox("Run Information & Meta Data")
         info_layout = QHBoxLayout()
         self.input_run = QLineEdit("101")
@@ -52,7 +51,6 @@ class DaqTab(QWidget):
 
         self.sub_tabs = QTabWidget()
         
-        # --- 1. Long-Term Manual DAQ 탭 ---
         tab_manual = QWidget()
         man_layout = QVBoxLayout(tab_manual)
 
@@ -79,7 +77,6 @@ class DaqTab(QWidget):
         self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; padding: 15px; font-weight: bold; font-size: 14px;")
         man_layout.addWidget(self.btn_start); man_layout.addStretch()
 
-        # --- 2. THR Scan 탭 ---
         tab_scan = QWidget(); scan_layout = QVBoxLayout(tab_scan)
         scan_row = QHBoxLayout()
         self.sp_start = QSpinBox(); self.sp_start.setRange(10, 1000); self.sp_start.setValue(50)
@@ -117,6 +114,47 @@ class DaqTab(QWidget):
     def is_running(self):
         return self.daq_manager.process.state() == QProcess.Running
 
+    # 💡 [UX 신규 패치] 주석을 제거하고 깔끔한 2열 표(Table) 형태의 HTML로 요약 생성
+    def get_config_summary(self, cfg_path):
+        params = {}
+        try:
+            with open(cfg_path, 'r') as f:
+                for line in f:
+                    # 인라인 주석 제거 및 공백 정리
+                    clean_line = line.split('#')[0].strip()
+                    if not clean_line: continue
+                    parts = clean_line.split()
+                    if len(parts) >= 2:
+                        key = parts[0]
+                        val = " ".join(parts[1:])
+                        params[key] = val
+        except Exception:
+            return "Config file read error."
+
+        if not params: return "No valid parameters found."
+
+        # HTML Table 구조로 직관적인 확장 바 구현
+        html = f"""
+        <table style='width:100%; font-size:12px; color:#424242;'>
+            <tr>
+                <td style='padding:2px;'><b>RL:</b> {params.get('RECORD_LEN', '-')}</td>
+                <td style='padding:2px;'><b>TLT:</b> {params.get('TRIG_TLT', '-')}</td>
+            </tr>
+            <tr>
+                <td style='padding:2px;'><b>POL:</b> {params.get('POL', '-')}</td>
+                <td style='padding:2px;'><b>CW:</b> {params.get('CW', '-')}</td>
+            </tr>
+            <tr>
+                <td style='padding:2px;'><b>DLY:</b> {params.get('DLY', '-')}</td>
+                <td style='padding:2px;'><b>OFF:</b> {params.get('DACOFF', '-')}</td>
+            </tr>
+            <tr>
+                <td colspan='2' style='padding:2px; color:#D32F2F;'><b>THR:</b> {params.get('THR', '-')}</td>
+            </tr>
+        </table>
+        """
+        return html
+
     def start_manual(self, subrun_idx=1):
         self.auto_mode = "MANUAL"; self.current_subrun = subrun_idx
         self.max_subruns = self.sp_sub_max.value()
@@ -125,6 +163,10 @@ class DaqTab(QWidget):
         
         run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
         self.sig_mode.emit(f"RUN [{run_str}]")
+        
+        # 💡 요약 시그널 전송 (HTML 포맷)
+        cfg_summary = self.get_config_summary(self.combo_cfg.currentData())
+        self.sig_config.emit(cfg_summary)
         
         out_file = os.path.join(self.data_dir, f"run_{run_str}.dat")
         args = ["-f", self.combo_cfg.currentData(), "-o", out_file]
@@ -142,13 +184,19 @@ class DaqTab(QWidget):
     def run_scan_step(self):
         if not self.scan_queue: 
             self.auto_mode = "NONE"; self.sig_mode.emit("IDLE")
-            self.sig_log.emit("\033[1;32m[AUTO] All scan steps completed.\033[0m", False)
+            self.sig_config.emit("Ready to start...")
+            self.sig_log.emit("<span style='color:#388E3C; font-weight:bold;'>[AUTO] All scan steps completed.</span>", False)
             return
         
         curr_thr = self.scan_queue.pop(0)
         self.start_time = datetime.now()
         self.last_stats = {'events': 0, 'size': 0.0, 'rate': 0.0}
         self.sig_mode.emit(f"SCAN [THR={curr_thr}]")
+        
+        # 💡 스캔용 요약 시그널 전송 (HTML 포맷)
+        cfg_summary = self.get_config_summary(self.combo_cfg.currentData())
+        scan_html = f"<div style='color:#D32F2F; font-weight:bold; margin-bottom:5px;'>Scan Target THR: {curr_thr}</div>{cfg_summary}"
+        self.sig_config.emit(scan_html)
         
         out_file = os.path.join(self.data_dir, f"run_scan_thr{curr_thr}.dat")
         bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/frontend_500_mini"))
@@ -162,8 +210,7 @@ class DaqTab(QWidget):
             end_time = datetime.now()
             elapsed = (end_time - self.start_time).total_seconds()
             
-            # DB Insert
-            quality_text = self.combo_qual.currentText().split(" ")[1] # "🟢 GOOD" -> "GOOD"
+            quality_text = self.combo_qual.currentText().split(" ")[1] 
             self.db.insert_frontend_summary(
                 run_num=int(self.input_run.text()) if self.input_run.text().isdigit() else 0,
                 subrun=self.current_subrun if self.auto_mode == "MANUAL" else 0,
@@ -177,14 +224,13 @@ class DaqTab(QWidget):
                 quality=quality_text,
                 comments=self.input_cmt.text()
             )
-            self.sig_log.emit(f"\033[1;32m[DB] Summary safely stored to Database.\033[0m", False)
+            self.sig_log.emit("<span style='color:#388E3C; font-weight:bold;'>[DB] Summary safely stored to Database.</span>", False)
             self.start_time = None 
 
-            # 💡 [핵심] 자동 재시작 (Sub-run & Scan Idle 처리)
             if self.auto_mode == "MANUAL" and self.current_subrun < self.max_subruns:
                 idle = self.sp_idle.value()
                 self.sig_mode.emit(f"IDLE ({idle}s)")
-                self.sig_log.emit(f"\033[1;33m[AUTO] Waiting {idle} seconds for next Sub-run...\033[0m", False)
+                self.sig_log.emit(f"<span style='color:#F57C00; font-weight:bold;'>[AUTO] Waiting {idle} seconds for next Sub-run...</span>", False)
                 QTimer.singleShot(idle * 1000, lambda: self.start_manual(self.current_subrun + 1))
             elif self.auto_mode == "SCAN":
                 idle = self.sp_scan_idle.value()
@@ -192,10 +238,12 @@ class DaqTab(QWidget):
                 QTimer.singleShot(idle * 1000, self.run_scan_step)
             else:
                 self.auto_mode = "NONE"; self.sig_mode.emit("IDLE")
+                self.sig_config.emit("Ready to start...")
 
     def force_abort(self):
         self.auto_mode = "NONE"; self.scan_queue.clear(); self.max_subruns = 1
         self.daq_manager.stop_process()
+        self.sig_config.emit("Ready to start...")
         if self.mon_process.state() == QProcess.Running: self.mon_process.terminate()
 
     def start_monitor(self):
@@ -203,7 +251,9 @@ class DaqTab(QWidget):
             mon_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/online_monitor"))
             run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
             self.mon_process.start(mon_path, [os.path.join(self.data_dir, f"run_{run_str}.dat")])
-            self.sig_log.emit("\033[1;36m[MONITOR]\033[0m Live Viewer Started.", False)
+            self.sig_log.emit("<span style='color:#0288D1; font-weight:bold;'>[MONITOR] Live Viewer Started.</span>", False)
 
     def stop_monitor(self):
-        if self.mon_process.state() == QProcess.Running: self.mon_process.terminate()
+        if self.mon_process.state() == QProcess.Running: 
+            self.mon_process.terminate()
+            self.sig_log.emit("<span style='color:#8E24AA; font-weight:bold;'>[MONITOR] Live Viewer Stopped.</span>", False)

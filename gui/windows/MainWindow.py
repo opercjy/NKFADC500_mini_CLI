@@ -7,7 +7,6 @@ from PyQt5.QtWidgets import (QMainWindow, QTabWidget, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QTextCursor
 
-# 서브 모듈 임포트
 from widgets.DaqTab import DaqTab
 from widgets.ConfigTab import ConfigTab
 from widgets.TltTab import TltTab
@@ -23,16 +22,15 @@ class MainWindow(QMainWindow):
         self.initUI()
         self.connectSignals()
 
-        # 1초마다 시계 및 디스크 용량 갱신
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self.update_clock)
         self.clock_timer.start(1000)
 
     def initUI(self):
         self.setWindowTitle("NKFADC500 Mini - Ultimate DQM Panel")
-        self.resize(1300, 900)
+        self.resize(1350, 900) 
 
-        # 💡 눈이 편안한 연한 베이지(Light Beige) 테마
+        # 💡 전체 화이트/베이지 테마 및 LCD/콘솔 화이트 배경 유지
         self.setStyleSheet("""
             QMainWindow { background-color: #F4F1EA; }
             QTabWidget::pane { border: 1px solid #CDBA96; background: #FDFBF7; border-radius: 4px; }
@@ -41,14 +39,13 @@ class MainWindow(QMainWindow):
             QLabel { color: #333333; font-weight: bold; }
             QGroupBox { border: 2px solid #A69B8D; border-radius: 6px; margin-top: 15px; background-color: #FDFBF7; }
             QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 15px; color: #5C4B3A; font-weight: bold;}
-            QTextEdit { background-color: #2b2b2b; color: #f8f8f2; border: 2px solid #A69B8D; border-radius: 4px; padding: 5px; font-family: Consolas; }
+            QTextEdit { background-color: #FFFFFF; color: #333333; border: 2px solid #A69B8D; border-radius: 4px; padding: 5px; font-family: Consolas; font-size: 13px;}
         """)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # 상단 타이틀 및 시계
         top_layout = QHBoxLayout()
         title_lbl = QLabel("NKFADC500 Mini Master Console")
         title_lbl.setFont(QFont("Arial", 18, QFont.Bold))
@@ -58,10 +55,8 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(title_lbl); top_layout.addStretch(); top_layout.addWidget(self.clock_lbl)
         main_layout.addLayout(top_layout)
 
-        # 좌/우 분할 스플리터
         self.splitter = QSplitter(Qt.Horizontal)
         
-        # --- [좌측 패널] 탭 뷰어 ---
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 5, 0)
@@ -82,7 +77,6 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.db_tab, "🗄️ Run Database")
         left_layout.addWidget(self.tabs, stretch=1)
 
-        # 마스터 제어 버튼
         master_group = QGroupBox("Master Controls")
         master_layout = QHBoxLayout()
         self.btn_mon_start = QPushButton("👁️ Live Monitor ON")
@@ -97,7 +91,7 @@ class MainWindow(QMainWindow):
         master_group.setLayout(master_layout)
         left_layout.addWidget(master_group)
 
-        # --- [우측 패널] 라이브 대시보드 전광판 ---
+        # --- 우측 라이브 대시보드 ---
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         dash_group = QGroupBox("Live Status Dashboard")
@@ -109,6 +103,18 @@ class MainWindow(QMainWindow):
         self.lbl_mode.setFont(QFont("Arial", 14, QFont.Bold)); self.lbl_mode.setStyleSheet("color: #FF9800;")
         d_layout.addWidget(self.lbl_mode)
         
+        # 💡 [UX 신규 패치] 현재 구동 중인 Config 요약창 추가
+        cfg_group = QGroupBox("Current Run & Config")
+        cfg_group.setStyleSheet("QGroupBox { border: 1px solid #B0BEC5; margin-top: 10px; background-color: #F3E5F5;} QGroupBox::title { color: #6A1B9A; font-size: 11px;}")
+        cfg_layout = QVBoxLayout()
+        cfg_layout.setContentsMargins(5, 15, 5, 5)
+        self.lbl_run_cfg = QLabel("Ready to start...")
+        self.lbl_run_cfg.setStyleSheet("color: #333333; font-size: 13px; font-weight: normal;")
+        self.lbl_run_cfg.setWordWrap(True)
+        cfg_layout.addWidget(self.lbl_run_cfg)
+        cfg_group.setLayout(cfg_layout)
+        d_layout.addWidget(cfg_group)
+
         self.lbl_start = QLabel("Start: --:--:--")
         self.lbl_elapsed = QLabel("Elapsed: 00:00:00")
         self.lbl_elapsed.setStyleSheet("color: #1976D2; font-size: 14px;")
@@ -121,15 +127,12 @@ class MainWindow(QMainWindow):
         d_layout.addWidget(QLabel("Acquired Events:"))
         self.lcd_events = QLCDNumber()
         self.lcd_events.setDigitCount(9); self.lcd_events.setSegmentStyle(QLCDNumber.Flat)
-        self.lcd_events.setStyleSheet("color: #00FF00; background: #111111; min-height: 50px;")
+        self.lcd_events.setStyleSheet("color: #1B5E20; background: #FFFFFF; min-height: 50px; border: 2px solid #CDBA96; border-radius: 4px;")
         d_layout.addWidget(self.lcd_events)
         
         self.lbl_size = QLabel("File Size: 0.00 MB"); self.lbl_size.setStyleSheet("color: #E65100; font-size: 14px;")
         self.lbl_speed = QLabel("Speed: 0.00 MB/s"); self.lbl_speed.setStyleSheet("color: #2E7D32; font-size: 14px;")
         
-        d_layout.addWidget(self.lbl_size); d_layout.addWidget(self.lbl_speed); 
-
-        # 💡 [핵심] DataQ와 Pool을 좌우로 완벽하게 분리하여 가시성 극대화
         q_pool_layout = QHBoxLayout()
         self.lbl_dataq = QLabel("DataQ: 0")
         self.lbl_dataq.setAlignment(Qt.AlignCenter)
@@ -141,6 +144,8 @@ class MainWindow(QMainWindow):
         
         q_pool_layout.addWidget(self.lbl_dataq)
         q_pool_layout.addWidget(self.lbl_pool)
+        
+        d_layout.addWidget(self.lbl_size); d_layout.addWidget(self.lbl_speed)
         d_layout.addLayout(q_pool_layout)
 
         self.lbl_disk = QLabel("Disk Free: -- GB")
@@ -149,10 +154,9 @@ class MainWindow(QMainWindow):
         dash_group.setLayout(d_layout); right_layout.addWidget(dash_group, stretch=1)
 
         self.splitter.addWidget(left_widget); self.splitter.addWidget(right_widget)
-        self.splitter.setStretchFactor(0, 7); self.splitter.setStretchFactor(1, 3)
+        self.splitter.setStretchFactor(0, 65); self.splitter.setStretchFactor(1, 35)
         main_layout.addWidget(self.splitter, stretch=3)
 
-        # --- [하단 패널] 시스템 콘솔 ---
         log_group = QGroupBox("System Console")
         log_layout = QVBoxLayout()
         self.log_viewer = QTextEdit(); self.log_viewer.setReadOnly(True)
@@ -164,10 +168,10 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("System Ready.")
 
     def connectSignals(self):
-        # 자식 모듈들의 시그널을 메인 윈도우 UI와 연결
         self.daq_tab.sig_log.connect(self.append_log)
         self.daq_tab.sig_stat.connect(self.update_dashboard)
         self.daq_tab.sig_mode.connect(self.set_daq_mode)
+        self.daq_tab.sig_config.connect(self.update_config_summary) # 💡 Config 요약 시그널 연결
         self.prod_tab.sig_log.connect(self.append_log)
         self.hv_tab.sig_log.connect(self.append_log)
 
@@ -191,14 +195,16 @@ class MainWindow(QMainWindow):
         if 'rate' in stats: self.lbl_rate.setText(f"Rate: {stats['rate']} Hz")
         if 'size' in stats: self.lbl_size.setText(f"File Size: {stats['size']} MB")
         if 'speed' in stats: self.lbl_speed.setText(f"Speed: {stats['speed']} MB/s")
-        
-        # 💡 [핵심] 분리된 라벨에 각각 데이터 업데이트
+        # 💡 [버그 픽스] dataq와 pool을 분리하여 업데이트 (에러 방지)
         if 'dataq' in stats: self.lbl_dataq.setText(f"DataQ: {stats['dataq']}")
         if 'pool' in stats: self.lbl_pool.setText(f"Pool: {stats['pool']}")
 
+    def update_config_summary(self, text):
+        self.lbl_run_cfg.setText(text)
+
     def append_log(self, text, is_error=False):
         if is_error:
-            self.log_viewer.append(f'<span style="color:#F44336; font-weight:bold;">{text}</span>')
+            self.log_viewer.append(f'<span style="color:#D32F2F; font-weight:bold;">{text}</span>')
         else:
             self.log_viewer.append(text)
         self.log_viewer.moveCursor(QTextCursor.End)
@@ -214,4 +220,4 @@ class MainWindow(QMainWindow):
         self.daq_tab.force_abort()
         self.prod_tab.force_abort()
         self.hv_tab.force_shutdown()
-        self.append_log("\033[1;31m[SYSTEM] ALL PROCESSES ABORTED BY USER.\033[0m", True)
+        self.append_log("<span style='color:#D32F2F; font-weight:bold;'>[SYSTEM] ALL PROCESSES ABORTED BY USER.</span>", False)

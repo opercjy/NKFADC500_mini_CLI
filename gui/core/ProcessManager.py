@@ -1,7 +1,7 @@
 import os
 import re
 import signal 
-from PyQt5.QtCore import QObject, QProcess, pyqtSignal
+from PyQt5.QtCore import QObject, QProcess, pyqtSignal, QTimer
 
 class ProcessManager(QObject):
     log_signal = pyqtSignal(str, bool)
@@ -24,11 +24,19 @@ class ProcessManager(QObject):
 
     def stop_process(self):
         if self.process.state() == QProcess.Running:
-            self.log_signal.emit("<span style='color: #E65100;'><b>[GUI] Sending interrupt signal (Ctrl+C)...</b></span><br>", False)
+            self.log_signal.emit("<span style='color: #F57C00;'><b>[GUI] Sending interrupt signal (Ctrl+C)...</b></span><br>", False)
             try:
                 os.kill(self.process.processId(), signal.SIGINT)
             except Exception:
-                self.process.terminate() 
+                pass
+            
+            # 💡 [핵심 패치] 1.5초 뒤에도 무한루프에 빠져 안 죽으면, 강제 킬(SIGKILL) 발동!
+            QTimer.singleShot(1500, self.force_kill)
+
+    def force_kill(self):
+        if self.process.state() == QProcess.Running:
+            self.log_signal.emit("<span style='color: #D32F2F; font-weight: bold;'>[GUI] Hardware deadlock detected. FORCING KILL!</span><br>", True)
+            self.process.kill() # 자비 없는 강제 종료
 
     def write_stdin(self, text):
         if self.process.state() == QProcess.Running:
@@ -46,7 +54,6 @@ class ProcessManager(QObject):
                 
                 if "Real-time Monitor" in clean_line: continue
                 
-                # 💡 [핵심] 정규식으로 DataQ와 Pool까지 완벽 파싱
                 if "Events:" in clean_line and "Rate:" in clean_line:
                     stats = {}
                     m_ev = re.search(r'Events:\s*(\d+)', clean_line)
@@ -64,7 +71,7 @@ class ProcessManager(QObject):
                     if m_pl: stats['pool'] = m_pl.group(1)
                     
                     self.stat_signal.emit(stats) 
-                    continue # 로그창에는 안 띄움!
+                    continue 
 
                 if "Progress:" in clean_line:
                     m_prg = re.search(r'Progress:\s*([0-9.]+)\s*%', clean_line)
@@ -82,7 +89,7 @@ class ProcessManager(QObject):
                 html_line = html_line.replace('\033[1;31m', "<span style='color: #D32F2F;'>")
                 html_line = html_line.replace('\033[0m', "</span>")
                 self.ansi_escape.sub('', html_line)
-                self.log_signal.emit(html_line + "<br>", False)
+                self.log_signal.emit(html_line, False)
 
     def handle_state_change(self, state):
         if state == QProcess.NotRunning:

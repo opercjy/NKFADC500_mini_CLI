@@ -1,4 +1,4 @@
-# NKFADC500_mini_CLI : NoticeDAQ Standalone Control
+# NKFADC500\_mini\_CLI : NoticeDAQ Standalone Control
 
 ![C++](https://img.shields.io/badge/C++-17-blue?style=flat-square&logo=c%2B%2B)
 ![ROOT](https://img.shields.io/badge/Framework-CERN%20ROOT%206-005aaa?style=flat-square)
@@ -7,11 +7,10 @@
 ![Status](https://img.shields.io/badge/Status-Phase_3_Complete-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/License-Notice_Authorized-red?style=flat-square)
 
-Notice Korea의 FADC500 Mini (500MS/s, 12-bit, 4-Channel) 보드를 제어하고, 초고속으로 바이너리 데이터를 수집하여 ROOT 프레임워크 기반으로 분석하기 위한 **고성능 하이브리드 C++ DAQ 아키텍처**입니다.
+Notice Korea의 FADC500 Mini (500MS/s, 12-bit, 4-Channel) 보드를 제어하고, 초고속으로 바이너리 데이터를 수집하여 ROOT 프레임워크 기반으로 분석하기 위한 **고성능 하이브리드 C++ / Python 통합 DAQ 아키텍처**입니다.
 
-향후 GUI 연동 및 다양한 분석 모듈 추가가 용이하도록 객체지향적(OOP)이고 확장 가능한 구조로 설계되었으며, 극단적인 고속 트리거 환경에서도 시스템이 뻗지 않도록 \*\*무결성 방어 로직(Zero-Deadlock)\*\*이 적용되어 있습니다.
+극단적인 고속 트리거(High Noise & Trigger Rate) 환경에서도 USB 버퍼가 뻗지 않도록 \*\*C++ 백엔드의 무결성 방어 로직(Zero-Deadlock, 100% Drain)\*\*이 적용되어 있으며, 이를 마우스 클릭만으로 우아하게 제어할 수 있는 **PyQt5 기반의 마스터 컨트롤 GUI 패널**이 완벽하게 통합되어 있습니다.
 
------
 
 ## 🏛️ 1. 시스템 아키텍처 개요 (System Architecture)
 
@@ -21,37 +20,68 @@ Notice Korea의 FADC500 Mini (500MS/s, 12-bit, 4-Channel) 보드를 제어하고
       * 하드웨어 제어 및 USB 3.0(SuperSpeed) 통신 전담.
       * 연산 오버헤드를 없애기 위해 복잡한 파싱 없이 순수 바이너리(`.dat`) 파일로 하드디스크에 고속 덤프.
       * **[핵심 기능]**
-          * **스마트 파서:** `settings.cfg`를 통해 하드웨어의 모든 레지스터(채널별 임계값, 딜레이, 트리거 모드 등)를 유연하게 제어.
-          * **Fail-Fast & Auto-Recovery:** 하드웨어 미연결 시 즉각 종료, USB Flooding(과부하) 방어, FIFO Lock-up 자동 해제 로직 탑재.
-          * **논블로킹 UI:** 스레드 병목 없이 0.5초 주기로 터미널에 실시간 수집 속도(MB/s) 및 트리거 레이트(Hz) 출력.
+          * **2MB Deadlock 완전 파괴:** 하드웨어 FIFO 버퍼 잔여물을 100% Drain(추출)하여 극한의 노이즈 상황에서도 영원히 뻗지 않는 무한대 수집 지원.
+          * **Fail-Fast & Auto-Recovery:** 하드웨어 미연결 시 즉각 종료, USB Flooding(과부하) 방어, 좀비 락(Error -7/-9) 자동 세척(Flush) 로직 탑재.
+          * **멀티스레드 큐잉(Producer-Consumer):** USB 패킷 수집 스레드와 디스크 I/O 스레드를 완벽히 분리하여 병목(Backpressure) 현상 극복.
   * **[Core 2] Production (`production_500_mini`) : 구현 완료 (Stable)**
       * 수집된 `.dat` 바이너리 파일을 읽어 12-bit 인터리브 마스킹을 해제.
       * C++ ROOT 객체를 활용하여 고속으로 물리량(전하량, 피크 등)을 추출하고, 입자물리 정석 규격인 플랫 트리(Flat Tree) 구조의 `*.root` 파일로 변환.
-      * FADC400 스타일의 `-w` 옵션을 지원하여 베이스라인이 차감된 무손실 파형 벡터를 TGraph 형태로 저장 가능.
+      * `-w` 옵션을 지원하여 베이스라인이 차감된 무손실 파형 벡터를 TGraph 형태로 저장 가능.
   * **[Core 3] Visualization (`online_monitor`) : 구현 완료 (Stable)**
       * 수집 중인 바이너리 파형을 실시간으로 추적(`tail -f` 방식)하여 확인하는 **라이브 온라인 모니터링(Live Online Monitoring)** 기능.
-      * 메모리 누수(Memory Leak) 방지 아키텍처가 적용되어 장기 가동 시에도 시스템 부하가 없으며, 4채널 독립 파형 및 실시간 전하량 스펙트럼(Log-Y)을 동시 제공.
-  * **[Expansion] PyQt GUI Control Panel : 개발 예정 (Phase 5)**
-      * CLI 기반의 설정 및 구동을 마우스 클릭으로 제어할 수 있는 종합 그래픽 유저 인터페이스.
+      * 메모리 누수(Memory Leak) 및 파일 포인터 에러(Underflow) 방지 아키텍처가 적용되어 장기 가동 시에도 시스템 부하가 없음.
+  * **[Master GUI] PyQt5 Control Panel (`fadc500_gui`) : 구현 완료 (Stable)**
+      * CLI 기반의 백엔드 엔진들을 서브 프로세스(QProcess)로 완벽히 격리하여 제어하는 종합 그래픽 유저 인터페이스.
+      * 시스템 다운 시 강력한 `SIGKILL` 하드웨어 강제 처형 및 복구 기능 탑재.
 
 -----
 
-## 📁 2. 디렉토리 및 소스 코드 구조 (Directory Structure)
-본 프로젝트는 C++ 표준 개발론에 따라 역할별로 디렉토리가 철저하게 분리되어 있습니다.
+## 🖥️ 2. GUI 마스터 패널 및 사용자 경험 (UI & UX)
+
+본 프로젝트의 Phase 5로 완성된 통합 GUI 패널은 복잡한 설정 파일과 터미널 명령어 입력의 고통을 덜어주고, 직관적인 대시보드를 통해 실험의 가시성을 극대화합니다.
+
+*(📸 아래 캡처 이미지들은 실제 구동 화면입니다)*
+
+### 🚀 2.1 메인 대시보드 및 실시간 수집 뷰 (DAQ Control & Live Dashboard)
+
+  * **원클릭 수집 제어:** 수집 파일명(Run Number), 정지 조건(이벤트/시간), 자동 연속 수집(Long-term)을 손쉽게 세팅할 수 있습니다.
+  * **Live Status Dashboard:** 현재 수집 중인 파일의 크기, 초당 처리 속도(MB/s), 트리거 레이트(Hz)를 즉각적으로 보여줍니다.
+  * **스마트 Config 요약기:** 현재 구동 중인 환경 설정 파일(`settings.cfg`)에서 핵심 파라미터(RL, TLT, CW, THR 등)를 추출하여 우측 상단의 표(Table)로 요약해 줍니다. (설정 실수 원천 차단)
+  * **백프레셔(Backpressure) 모니터:** C++ 백엔드의 메모리 큐 상태(`DataQ` / `Pool`)를 시각적으로 분리 표기하여, 현재 PC의 디스크 쓰기 속도가 USB 수집 속도를 따라가고 있는지 병목 구간을 직관적으로 진단할 수 있습니다.
+
+### ⚙️ 2.2 하드웨어 파라미터 제어 (Hardware Config)
+
+  * 텍스트 에디터를 열 필요 없이, GUI 내에서 채널별 임계값(Threshold), 베이스라인 오프셋(DACOFF), 지연 시간(DLY), 극성(POL) 등을 스핀박스로 정밀하게 튜닝할 수 있습니다.
+
+### 📈 2.3 데이터 프로덕션 및 변환 (Production & Transformation)
+
+  * 수집된 순수 바이너리(`.dat`) 파일을 ROOT Tree(`.root`)로 고속 변환하는 작업을 프로그레스 바(Progress Bar)와 함께 시각적으로 제공합니다.
+  * 무손실 파형 보존 모드(`-w`) 및 대화형 뷰어(`-d` Interactive Mode)를 클릭 한 번으로 실행할 수 있습니다.
+
+### 🗄️ 2.4 데이터베이스 런 이력 관리 (Run Database)
+
+  * SQLite3 기반의 경량 로컬 DB가 내장되어 있어, 그동안 수행했던 수집(Frontend)과 변환(Production) 이력이 자동으로 기록됩니다.
+  * 각 런(Run)마다 어떤 품질(Quality)이었는지, 수집된 총 이벤트 수와 코멘트가 무엇이었는지 표 형태로 영구 보존됩니다.
+
+-----
+
+## 📁 3. 디렉토리 및 소스 코드 구조 (Directory Structure)
+
+본 프로젝트는 시스템의 안정성을 위해 C++ 백엔드(Core)와 Python 프론트엔드(GUI)가 철저하게 분리된 구조를 가집니다.
 
 Plaintext
+
 ```
 NKFADC500_mini_CLI/
-├── app/                  # [Application Layer] 최종 실행 파일 생성 소스
+├── app/                  # [C++ Application] 백엔드 실행 파일 생성 소스
 │   ├── frontend_main.cpp   # 초고속 바이너리 수집기 (frontend_500_mini)
 │   ├── production_main.cpp # 오프라인 ROOT 변환기 (production_500_mini)
 │   └── online_monitor.cpp  # 실시간 라이브 뷰어 (online_monitor)
-├── core/                 # [Engine Layer] 하드웨어 제어 및 DAQ 코어 모듈 (Static 라이브러리)
-│   ├── include/ & src/     # Fadc500Device, BinaryDaqManager, ConfigParser, ELog
-├── objects/              # [Data Layer] ROOT C++ 데이터 모델 (Shared 라이브러리 및 Dictionary)
-│   ├── include/ & src/     # RawData, RawChannel, RunInfo, FadcBD 
-├── gui/                  # [GUI Layer] PyQt5 기반 통합 제어 패널 (Phase 5)
+├── core/                 # [C++ Engine] 하드웨어 제어, 큐(Queue) 관리, DAQ 코어 모듈
+├── objects/              # [C++ Data] ROOT C++ 데이터 모델 (TTree 구조화)
+├── gui/                  # [Python GUI] PyQt5 기반 마스터 제어 패널
 │   ├── main.py             # GUI 진입점 (Entry Point)
+│   ├── core/               # IPC(프로세스간 통신), 서브프로세스 감시 및 DB 관리 매니저
 │   ├── windows/            # 메인 윈도우 레이아웃 오케스트레이터
 │   └── widgets/            # 기능별 독립 탭 위젯 (DaqTab, ConfigTab 등)
 ├── config/               # 하드웨어 구동 환경설정 파일 (settings.cfg)
@@ -59,30 +89,16 @@ NKFADC500_mini_CLI/
 └── CMakeLists.txt        # 최상위 빌드 스크립트 (모듈 통합 빌드 및 링킹)
 ```
 
-## 🚀 3. 필수 의존성 및 권한 설정 (Prerequisites)
-
-### 3.1 패키지 요구사항
-
-  * **CERN ROOT 6** (환경변수 `thisroot.sh` 로드 필요)
-  * **CMake 3.16+**, **GCC 지원 C++17 컴파일러**
-  * `libusb-1.0` 라이브러리 (RHEL/Fedora: `libusb1-devel`, Ubuntu: `libusb-1.0-0-dev`)
-
-### 3.2 USB 장치 권한 등록 (udev rules)
-
-일반 유저 권한으로 USB 3.0 통신을 수행하기 위해 장치 권한을 먼저 시스템에 등록해야 합니다. (최초 1회만 수행)
-
-```bash
-# 프로젝트 루트 폴더에서 실행
-sudo cp rules/50-nkfadc500.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
-
 -----
 
 ## 🛠️ 4. 설치 및 빌드 가이드 (Build & Installation)
 
-### Phase 1: 제조사 로우레벨 라이브러리 컴파일 (⚠️ 반드시 `su` 권한 진행)
+### Phase 1: 필수 의존성 및 패키지 설치
+
+  * **C++ Backend:** CERN ROOT 6, CMake 3.16+, GCC (C++17), `libusb-1.0`
+  * **Python GUI:** Python 3.8+, PyQt5
+
+### Phase 2: 제조사 로우레벨 라이브러리 컴파일 (⚠️ 반드시 `su` 권한 진행)
 
 **[핵심 주의사항]** 리눅스 보안 정책상 `sudo`를 사용하면 사용자 환경 변수(ROOT 경로 등)가 초기화되어 ROOT 딕셔너리 컴파일 에러가 발생합니다. **반드시 `su` 명령어로 관리자 계정에 진입한 뒤, 환경 변수를 수동 로드하고 컴파일해야 합니다.**
 
@@ -90,130 +106,44 @@ sudo udevadm trigger
 # 1. 관리자(root) 계정으로 전환
 su
 
-# 2. 필수 환경 변수 스크립트 2개 로드 (본인 시스템 경로에 맞게 수정)
+# 2. 필수 환경 변수 로드 (본인 시스템 경로에 맞게 수정)
 source /usr/local/notice/notice_env.sh
-source /usr/local/bin/thisroot.sh   # (또는 본인의 ROOT thisroot.sh 경로)
+source /usr/local/bin/thisroot.sh
 
 # 3. Layer 1 ~ Layer 3 일괄 빌드 및 설치
-cd /usr/local/notice/src/nkusb/nkusb
-make clean; make install
-cd ../nkusbroot
-make clean; make install
+cd /usr/local/notice/src/nkusb/nkusb; make clean; make install
+cd ../nkusbroot; make clean; make install
 
-cd ../../usb3com/usb3com
-make clean; make install
-cd ../usb3comroot
-make clean; make install
+cd ../../usb3com/usb3com; make clean; make install
+cd ../usb3comroot; make clean; make install
 
-cd ../../nkfadc500/nkfadc500
-make clean; make install
-cd ../nkfadc500root
-make clean; make install
+cd ../../nkfadc500/nkfadc500; make clean; make install
+cd ../nkfadc500root; make clean; make install
 
-# 4. 설치 완료 후 반드시 관리자 계정에서 빠져나옵니다.
+# 4. 설치 완료 후 관리자 계정 종료
 exit
 ```
 
-### Phase 2: 메인 DAQ 프로그램 빌드 (일반 유저 진행)
-
-제조사 라이브러리가 시스템에 안착되었다면, 일반 계정으로 돌아와 메인 애플리케이션을 빌드합니다.
+### Phase 3: 메인 애플리케이션 빌드 및 실행 (일반 유저)
 
 ```bash
-# 프로젝트 최상위 폴더(NKFADC500_mini_CLI)에서 실행
+# 프로젝트 최상위 폴더에서 실행
 mkdir -p build && cd build
 cmake ..
 make -j4
-```
 
-빌드가 성공하면 `bin/` 디렉토리에 실행 파일들이 생성됩니다.
+# 빌드 완료 후 통합 GUI 실행
+../bin/fadc500_gui
+```
 
 -----
 
-## 🏃 5. 시스템 구동 매뉴얼 (Usage)
+## 📖 5. 감사의 글 (Acknowledgements)
 
-### 5.1 하드웨어 설정 파일 (`config/settings.cfg`) 구성 및 이해
+본 DAQ 시스템이 세상에 나올 수 있도록 보이지 않는 곳에서 헌신해 주신 수많은 분들과 인프라에 깊은 감사를 표합니다.
 
-데이터 수집 전, `config/settings.cfg` 파일을 열어 하드웨어 파라미터를 물리적 환경에 맞게 조율합니다.
-*(하나의 값을 적으면 4개 채널 전체에 일괄 적용되며, 4개의 값을 띄어쓰기로 적으면 Ch0 \~ Ch3에 각각 독립적으로 적용됩니다.)*
+**대한민국 국민 여러분의 땀방울과 성원에 바칩니다**
+우주의 근본을 탐구하는 기초 과학의 험난한 여정을 묵묵히 걸을 수 있는 것은, 국민 여러분께서 땀 흘려 조성해 주신 소중한 연구 기금 덕분입니다. 당장의 눈부신 이익이 보이지 않는 척박한 길임에도 아낌없는 믿음과 성원을 보내주심에 깊이 감사드립니다. 이 시스템이 포착해 낼 우주의 미세한 신호들은 곧 대한민국 과학 역사에 새겨질 국민 여러분의 위대한 발자취입니다. 여러분께서 쥐여주신 자긍심을 가슴 깊이 새기고, 세계의 최전선에서 쉼 없이 탐구하겠습니다.
 
-#### 🟢 [글로벌 및 트리거 설정]
-
-  * `RUN_NUMBER`: 현재 수집 번호. 구동 시 `run_XXXX.cfg` 형태로 설정이 자동 백업됩니다.
-  * `BOARD`: 장비에 할당된 VME/USB 고유 Serial ID (기본값: 1)
-  * `SAMPLING_RATE`: 샘플링 주파수 (1: 500MS/s, 2: 250MS/s, 4: 125MS/s)
-  * `RECORD_LEN`: 파형 저장 길이. 1 단위가 128ns를 의미하므로, `8` 입력 시 1μs(1024ns) 기록.
-  * `PRESCALE`: 트리거 분주비 (1 \~ 65535). 데이터 레이트가 너무 높을 때 들어온 트리거를 N번에 한 번씩만 인정하여 DAQ 부하를 조절합니다. (일반 물리 실험 시 `1` 권장)
-  * `TRIG_TLT`: 다중 채널 트리거 로직(Trigger Lookup Table). (예: `65534`(0xFFFE) = 4채널 중 하나라도 신호가 오면 모두 기록하는 OR 로직)
-  * `TRIG_ENABLE`: 트리거를 발생시킬 권한을 부여할 채널의 비트마스크. (예: `15`(0xF) = 4개 채널 전체 트리거 허용, `9` = Ch0, Ch3만 허용)
-  * `PTRIG_INT`: 페데스탈(Pedestal) 강제 트리거 발생 주기(ms). 물리 신호 유무와 무관하게 허공(베이스라인)을 찍습니다. (일반 물리 실험 시 반드시 `0`으로 비활성화, 캘리브레이션 시 `100` 등 사용)
-
-#### 🔵 [채널별 아날로그 및 타이밍 설정]
-
-  * `DACOFF`: ADC DC 베이스라인 오프셋 (0 \~ 4095). PMT와 같은 Negative(음의 방향) 펄스 관측 시, 파형이 아래로 충분히 뻗을 수 있도록 공간을 확보하기 위해 주로 높은 값(`3400` 이상)을 부여합니다.
-  * `POL`: 입력 신호 극성. (0: Negative 하강 엣지, 1: Positive 상승 엣지)
-  * `THR`: 펄스 트리거 문턱값 (Threshold). 설정된 베이스라인 노이즈 대역보다는 높게 설정해야 가짜 트리거(Noise Trigger)를 막을 수 있습니다.
-  * `DLY`: 트리거 시점을 기준으로 파형 저장을 시작할 딜레이(ns). 펄스의 상승(Rising Edge) 이전의 페데스탈(Pedestal) 영역을 함께 수집하기 위해 적절한 지연값을 줍니다.
-  * `CW`: Coincidence Window. 다중 채널 동시발생(Coincidence)을 판별할 때 허용할 시간 폭(ns)입니다.
-  * `AMODE`: ADC 모드 및 디지털 필터링. FPGA 내부에서 파형을 어떻게 전처리할지 결정합니다.
-      * `0` (Bypass): 필터를 끄고 날것(Raw)의 파형을 그대로 받습니다. PMT나 SiPM처럼 빠르고 날카로운 신호 관측 시 필수입니다.
-      * `1` 이상: 이동 평균(Moving Average) 등 저/고주파 필터를 적용합니다. HPGe처럼 느린 신호의 노이즈를 깎아내어 정확한 전하량(Charge)을 구할 때 유리합니다.
-
-### 5.2 데이터 수집 가동 (Frontend)
-
-설정이 완료되었다면 아래 명령어로 초고속 덤프 수집기를 가동합니다.
-
-```bash
-# 프로젝트 루트 디렉토리 기준
-./bin/frontend_500_mini -f config/settings.cfg -o data/run_0001.dat [옵션]
-```
-
-**[프론트엔드 실행 옵션]**
-
-  * `-f <file>` : 사용할 설정 파일 경로 (기본값: `../config/settings.cfg`)
-  * `-o <file>` : 저장될 바이너리 데이터 파일명 (기본값: `run_XXXX.dat`)
-  * `-n <개수>` : 목표 이벤트 수. 해당 개수에 도달하면 자동으로 안전 종료됩니다.
-  * `-t <초>` : 시간 제한. 지정된 초(Seconds)가 지나면 자동으로 안전 종료됩니다.
-
-💡 **Graceful Shutdown:** 수집을 도중에 종료하려면 **`Ctrl + C`** 를 한 번만 입력하십시오. 진행 중이던 버퍼를 디스크에 모두 안전하게 내려쓴 뒤, Run Summary(요약 통계)를 출력하고 정상 종료됩니다.
-
-### 5.3 오프라인 변환 (Production)
-
-수집된 순수 바이너리(`.dat`) 데이터를 ROOT TTree 형태(`.root`)로 초고속 파싱합니다.
-터미널에서 변환 진행률과 ETA(예상 남은 시간)가 실시간으로 표시됩니다.
-
-```bash
-# 1. 고속 물리량(Charge/Peak) 추출 모드 (저용량, 빠른 연산)
-./bin/production_500_mini data/run_0001.dat
-
-# 2. 무손실 전체 파형 보존 모드 (상세 분석용)
-./bin/production_500_mini data/run_0001.dat -w
-```
-
-  * 변환이 완료되면 원본 파일 이름에 `_prod`가 붙은 `run_0001_prod.root` 파일이 생성됩니다.
-  * `-w` 옵션을 부여하면 `wTime_ChX`, `wDrop_ChX` 등 ROOT TGraph로 쉽게 그릴 수 있는 Vector Branch가 트리에 추가로 기록됩니다.
-
-### 5.4 실시간 라이브 파형 뷰어 (Online Monitor)
-
-프론트엔드 수집기가 돌아가고 있는 와중에 **별도의 터미널 창**을 열어 실시간으로 파형과 전하량 스펙트럼(Charge Spectrum)을 모니터링할 수 있습니다. `tail -f` 방식처럼 동작하므로 파일의 성장을 실시간으로 추적합니다.
-
-```bash
-# [터미널 1] 프론트엔드 수집 가동
-./bin/frontend_500_mini -f config/settings.cfg -o data/live_stream.dat
-
-# [터미널 2] 뷰어 가동 (같은 파일을 지정)
-./bin/online_monitor data/live_stream.dat
-```
-
-  * **[상단 행] 파형 모니터:** 실시간 베이스라인(페데스탈) 점선이 함께 표기되어 신호의 흔들림을 파악할 수 있습니다.
-  * **[하단 행] 스펙트럼 모니터:** Log-Y 스케일이 적용된 전하량 누적 분포를 통해 물리적인 입자 스펙트럼을 즉시 검증할 수 있습니다.
-  * 뷰어를 종료하려면 터미널에서 `Ctrl+C`를 누르거나 ROOT 캔버스의 `X` 닫기 버튼을 누르면 메모리 누수 없이 안전하게 종료됩니다.
-
------
-
-## 🗺️ 6. 개발 로드맵 (Roadmap)
-
-  - [x] **Phase 1:** 객체지향(OOP) 기반 코어 아키텍처 및 CMake 빌드 시스템 통합
-  - [x] **Phase 2:** 초고속 무결성 바이너리 수집기(Frontend) 구현 완료 (Fail-Safe, Real-time Dashboard 탑재)
-  - [x] **Phase 3:** 순수 플랫 트리(Pure Flat Tree) 구조의 오프라인 파서(Production) 구현 완료
-  - [x] **Phase 4:** 메모리 릭(Leak) 방지 4x2 하이브리드 실시간 파형 뷰어(Online Monitoring) 구현 완료
-  - [ ] **Phase 5:** 사용자 친화적 PyQt GUI 통합 애플리케이션 개발
+**Notice Korea 김상열 박사님께**
+최전선에서 뛰어난 하드웨어를 설계해 주신 Notice Korea 김상열 박사님께 진심 어린 감사를 올립니다. 아낌없이 공유해 주신 로우 레벨 로직(Low-level logic)과 API 래퍼, 그리고 직접 FPGA 스크립트를 빌드해 주시며 남겨주신 상세한 테스트 코드들은 이 프로젝트를 지탱하는 가장 강력한 뼈대가 되었습니다. 하드웨어의 깊은 곳까지 친절하게 이끌어주신 박사님의 장인 정신에 무한한 경의를 표합니다.
