@@ -20,7 +20,6 @@ bool ConfigParser::Parse(const std::string& filename, RunInfo* runInfo) {
     while (std::getline(file, line)) {
         line_num++;
 
-        // 주석(#) 제거
         size_t comment_pos = line.find('#');
         if (comment_pos != std::string::npos) {
             line = line.substr(0, comment_pos);
@@ -30,52 +29,68 @@ bool ConfigParser::Parse(const std::string& filename, RunInfo* runInfo) {
         std::string key;
         if (!(iss >> key)) continue; 
 
+        // 글로벌 설정
         if (key == "RUN_NUMBER") {
-            int run;
-            if (iss >> run) runInfo->SetRunNumber(run);
+            int run; if (iss >> run) runInfo->SetRunNumber(run);
         }
         else if (key == "BOARD") {
-            int mid;
-            if (iss >> mid) current_bd = runInfo->AddFadcBD(mid);
+            int mid; if (iss >> mid) current_bd = runInfo->AddFadcBD(mid);
         }
-        else if (key == "THR" || key == "DACOFF" || key == "POL" || key == "DLY") {
+        else if (key == "SAMPLING_RATE") {
+            int val; if (iss >> val && current_bd) current_bd->SetSAMPLING(val);
+        }
+        else if (key == "RECORD_LEN") {
+            int val; if (iss >> val && current_bd) current_bd->SetRL(val);
+        }
+        else if (key == "PRESCALE") {
+            int val; if (iss >> val && current_bd) current_bd->SetPRESCALE(val);
+        }
+        else if (key == "TRIG_TLT") {
+            int val; if (iss >> val && current_bd) current_bd->SetTLT(val);
+        }
+        else if (key == "TRIG_ENABLE") {
+            int val; if (iss >> val && current_bd) current_bd->SetTRIGEN(val);
+        }
+        else if (key == "PTRIG_INT") {
+            int val; if (iss >> val && current_bd) current_bd->SetPTRIG(val);
+        }
+        // 채널별 배열 설정
+        else {
             if (!current_bd) {
                 ELog::Print(ELog::WARNING, Form("Line %d: '%s' ignored (No BOARD defined).", line_num, key.c_str()));
                 continue;
             }
 
-            // 남은 값들을 모두 읽어 벡터에 저장
             std::vector<int> values;
             int val;
-            while (iss >> val) {
-                values.push_back(val);
-            }
-
+            while (iss >> val) values.push_back(val);
             if (values.empty()) continue;
 
-            // [핵심] 값이 1개면 4채널에 일괄 적용, 값이 4개면 개별 적용
-            if (values.size() == 1) {
-                for (int i = 0; i < current_bd->NCHANNEL(); i++) {
-                    if (key == "THR")         current_bd->SetTHR(i, values[0]);
-                    else if (key == "DACOFF") current_bd->SetDACOFF(i, values[0]);
-                    else if (key == "POL")    current_bd->SetPOL(i, values[0]);
-                    else if (key == "DLY")    current_bd->SetDLY(i, values[0]);
-                }
-            } 
-            else {
-                for (size_t i = 0; i < values.size() && i < (size_t)current_bd->NCHANNEL(); i++) {
-                    if (key == "THR")         current_bd->SetTHR(i, values[i]);
-                    else if (key == "DACOFF") current_bd->SetDACOFF(i, values[i]);
-                    else if (key == "POL")    current_bd->SetPOL(i, values[i]);
-                    else if (key == "DLY")    current_bd->SetDLY(i, values[i]);
+            bool isGlobal = (values.size() == 1);
+            int loop_end = isGlobal ? current_bd->NCHANNEL() : values.size();
+
+            for (int i = 0; i < loop_end && i < current_bd->NCHANNEL(); i++) {
+                int apply_val = isGlobal ? values[0] : values[i];
+
+                if      (key == "THR")    current_bd->SetTHR(i, apply_val);
+                else if (key == "DACOFF") current_bd->SetDACOFF(i, apply_val);
+                else if (key == "POL")    current_bd->SetPOL(i, apply_val);
+                else if (key == "DLY")    current_bd->SetDLY(i, apply_val);
+                else if (key == "CW")     current_bd->SetCW(i, apply_val);
+                else if (key == "AMODE")  current_bd->SetAMODE(i, apply_val);
+                else if (key == "TMODE")  current_bd->SetTMODE(i, apply_val);
+                else if (key == "DT")     current_bd->SetDT(i, apply_val);
+                else if (key == "PSW")    current_bd->SetPSW(i, apply_val);
+                else if (key == "PCT")    current_bd->SetPCT(i, apply_val);
+                else if (key == "PCI")    current_bd->SetPCI(i, apply_val);
+                else if (key == "PWT")    current_bd->SetPWT(i, apply_val);
+                else {
+                    ELog::Print(ELog::WARNING, Form("Line %d: Unknown key '%s'.", line_num, key.c_str()));
+                    break; 
                 }
             }
         }
-        else {
-            ELog::Print(ELog::WARNING, Form("Line %d: Unknown config key '%s'.", line_num, key.c_str()));
-        }
     }
-
     file.close();
     return true;
 }
