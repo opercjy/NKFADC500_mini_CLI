@@ -1,68 +1,35 @@
-cmake_minimum_required(VERSION 3.10)
-project(Fadc500Project CXX)
+# ==============================================================================
+# NKFADC500_mini_CLI : NoticeDAQ Standalone Control Build Script
+# ==============================================================================
+cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
+project(NKFADC500_mini CXX)
 
-# C++14 표준 사용
-set(CMAKE_CXX_STANDARD 14)
+# [출력 경로 설정] 실행 파일은 bin/, 라이브러리와 딕셔너리는 lib/ 로 자동 배치
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
+
+# [컴파일러 옵션] C++17 표준 및 최적화
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+add_compile_options(-Wall -Wextra -Wno-unused-parameter -O3)
 
-# --- 실행 파일 및 라이브러리 출력 경로 설정 ---
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-
-# --- 설치 경로 설정 ---
-if(NOT CMAKE_INSTALL_PREFIX_INITIALIZED)
-  set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/install" CACHE PATH "Default install path" FORCE)
-endif()
-message(STATUS "Install prefix: ${CMAKE_INSTALL_PREFIX}")
-
-# --- 필수 패키지 및 라이브러리 경로 설정 ---
-find_package(ROOT REQUIRED)
+# 1. CERN ROOT 라이브러리 로드
+find_package(ROOT REQUIRED COMPONENTS Core RIO Tree Net Thread Gui MathCore Hist)
 include(${ROOT_USE_FILE})
-include_directories(include)
-include_directories($ENV{NKHOME}/include)
-link_directories($ENV{NKHOME}/lib)
 
-# ==============================================================================
-# 빌드 타겟 1: 데이터 획득 프로그램 (frontend_500_mini)
-# ==============================================================================
-add_executable(frontend_500_mini src/frontend_main.cpp src/DaqSystem.cpp)
-target_link_libraries(frontend_500_mini
-    PRIVATE
-    ${ROOT_LIBRARIES}
-    NoticeNKFADC500ROOT
-    usb3comroot
-)
-install(TARGETS frontend_500_mini DESTINATION bin)
-install(DIRECTORY config/ DESTINATION etc/frontend_500_mini)
+# 2. 제조사 라이브러리(NKHOME) 환경 변수 검증 및 경로 연동
+if(NOT DEFINED ENV{NKHOME})
+    message(FATAL_ERROR "[ERROR] NKHOME is not set! Please run: source notice_nkfadc500_4/notice/notice_env.sh")
+endif()
+set(NKHOME $ENV{NKHOME})
 
+# 전역 헤더 및 라이브러리 탐색 경로
+include_directories(${ROOT_INCLUDE_DIRS} ${NKHOME}/include)
+link_directories(${NKHOME}/lib)
 
-# ==============================================================================
-# 빌드 타겟 2: 데이터 분석/후처리 프로그램 (production_500_mini)
-# ==============================================================================
-add_executable(production_500_mini src/production_main.cpp src/Processor.cpp)
-target_link_libraries(production_500_mini
-    PRIVATE
-    ${ROOT_LIBRARIES}
-)
-install(TARGETS production_500_mini DESTINATION bin)
+# 3. 하위 모듈 빌드 트리
+add_subdirectory(objects)
+add_subdirectory(src)
 
-
-# ==============================================================================
-# 빌드 타겟 3: 데이터 시각화 프로그램 (visualize_waveforms)
-# ==============================================================================
-add_executable(visualize_waveforms src/visualize_waveforms.cpp)
-target_link_libraries(visualize_waveforms
-    PRIVATE
-    ${ROOT_LIBRARIES}
-)
-install(TARGETS visualize_waveforms DESTINATION bin)
-install(DIRECTORY scripts/ DESTINATION etc/scripts)
-
-
-# ==============================================================================
-# 제거 타겟 정의
-# ==============================================================================
-add_custom_target(uninstall
-    COMMAND xargs rm -vrf < ${CMAKE_CURRENT_BINARY_DIR}/install_manifest.txt
-    COMMENT "Uninstalling the project from ${CMAKE_INSTALL_PREFIX}..."
-)
+message(STATUS "✅ NKFADC500_mini CMake configuration completed successfully.")
