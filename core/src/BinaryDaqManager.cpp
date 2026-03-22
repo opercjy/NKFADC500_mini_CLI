@@ -29,7 +29,7 @@ BinaryDaqManager::BinaryDaqManager(RunInfo* runInfo)
     fZmqPublisher.setsockopt(ZMQ_CONFLATE, &conflate, sizeof(conflate));
     fZmqPublisher.bind("tcp://127.0.0.1:5555"); // GUI와 통신할 로컬 포트 개방
 
-    fResidualCapacity = 1024 * 1024; 
+    fResidualCapacity = 1024 * 1024; // 1MB 여유 공간
     fResidualBuffer = new unsigned char[fResidualCapacity];
     fResidualSize = 0;
 }
@@ -136,11 +136,12 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
             buffer->data = new unsigned char[buffer->capacity];
         }
 
-        fDevice->ReadDATA(bcount_kb, buffer->data);
-
-        // 💡 [Phase 6] 향후 케이블 단선(Error -4) 리턴 시 처리할 수 있도록 예비 방어 코드
-        // int stat = fDevice->ReadDATA(bcount_kb, buffer->data);
-        // if (stat == -4) { fIsRunning = false; break; }
+        int stat = fDevice->ReadData(total_bytes_to_read, buffer->data);
+        if (stat == -4) { 
+            // 💡 [Phase 6] USB 단선 시 무한루프 방지 및 안전 종료
+            fIsRunning = false; 
+            break; 
+        }
 
         buffer->size = total_bytes_to_read;
         fDataQueue.Push(buffer);
@@ -153,7 +154,7 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
 }
 
 // -------------------------------------------------------------------------
-// Consumer: 디스크 덤프 및 ZMQ Flat Binary 브로드캐스팅
+// Consumer: 디스크 덤프 및 ZMQ Flat Binary 브로드캐스팅 (스티칭 적용)
 // -------------------------------------------------------------------------
 void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEvents) {
     FILE* fp = fopen(outFileName.c_str(), "wb");
@@ -167,10 +168,16 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
     size_t total_written_bytes = 0;
     int current_events = 0;
     
+    // FADC500 Mini 1개 이벤트 바이트 계산 (16 Byte Header + 4Ch Data)
+    // 1 RL = 64 points. 4채널 * 2바이트 = 1 RL당 512바이트 페이로드
+    uint32_t record_len = fRunInfo->GetFadcBD(0)->GetRL();
+    uint32_t payload_size = record_len * 512; 
+    uint32_t event_byte_size = 16 + payload_size;
+
     auto sys_start_time = std::chrono::system_clock::now();
     auto ui_timer = std::chrono::steady_clock::now();
     auto perf_start_time = std::chrono::steady_clock::now(); 
-    auto zmq_timer = std::chrono::steady_clock::now(); // ZMQ 송신 타이머
+    auto zmq_timer = std::chrono::steady_clock::now(); 
     
     int last_print_events = 0;
     size_t last_print_bytes = 0;
@@ -181,23 +188,64 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
         if (fDataQueue.TryPop(popBuffer)) {
             if (popBuffer && popBuffer->size > 0) {
                 
-                // 1. 하드디스크에 바이너리 덤프 (최고 속도)
+                // 1. 하드디스크에 바이너리 원본 덤프 (무손실 보장)
                 size_t written = fwrite(popBuffer->data, 1, popBuffer->size, fp);
                 total_written_bytes += written;
                 
-                current_events = total_written_bytes / 4096;
+                // 이벤트 수 정확한 계산
+                current_events = total_written_bytes / event_byte_size;
 
-                // 💡 2. [Phase 6] ZMQ 실시간 브로드캐스팅 (Flat Binary)
-                // 파이썬 GUI가 뻗지 않도록 100ms(0.1초)에 1번씩만 쏴줌 (초당 10프레임 송신)
-                auto current_time = std::chrono::steady_clock::now();
-                if (std::chrono::duration<double>(current_time - zmq_timer).count() >= 0.1) {
-                    // 직렬화 없이 순수 메모리 배열을 그대로 전송 (Zero-Copy)
-                    size_t send_size = (popBuffer->size > 16384) ? 16384 : popBuffer->size;
-                    zmq::message_t msg(send_size);
-                    std::memcpy(msg.data(), popBuffer->data, send_size);
-                    fZmqPublisher.send(msg, zmq::send_flags::dontwait); // 논블로킹 송신
-                    zmq_timer = current_time;
+                // -----------------------------------------------------------------
+                // 💡 2. [Phase 6 최종] Residual Buffer 스티칭 및 ZMQ 순수 파형 추출
+                // -----------------------------------------------------------------
+                uint32_t total_parse_size = fResidualSize + popBuffer->size;
+                unsigned char* parse_buffer = new unsigned char[total_parse_size];
+
+                // 이전 턴의 자투리(Residual) 결합
+                if (fResidualSize > 0) {
+                    std::memcpy(parse_buffer, fResidualBuffer, fResidualSize);
                 }
+                std::memcpy(parse_buffer + fResidualSize, popBuffer->data, popBuffer->size);
+
+                uint32_t offset = 0;
+                bool sent_this_chunk = false;
+
+                // 이벤트 파싱 루프 (찢어진 이벤트는 루프를 통과하지 못함)
+                while (offset + event_byte_size <= total_parse_size) {
+                    
+                    // 파이썬 GUI가 뻗지 않도록 0.1초당 최신 1개 이벤트만 추출해서 전송
+                    if (!sent_this_chunk) {
+                        auto current_time = std::chrono::steady_clock::now();
+                        if (std::chrono::duration<double>(current_time - zmq_timer).count() >= 0.1) {
+                            
+                            // GUI로 쏠 Flat Binary C-Struct 생성 [EvtNum(4B) + ChID(4B) + nPoints(4B) + 파형 배열]
+                            uint32_t nPoints = record_len * 64 * 4; // 4채널 전체 포인트 수
+                            size_t msg_size = 12 + payload_size;
+                            zmq::message_t msg(msg_size);
+                            
+                            uint32_t* header_ptr = static_cast<uint32_t*>(msg.data());
+                            header_ptr[0] = current_events; // Event Num
+                            header_ptr[1] = 4;              // Num Channels
+                            header_ptr[2] = nPoints;        // Data Length
+                            
+                            // FPGA 헤더(16B)를 건너뛰고 순수 파형 ADC 데이터만 복사 (Zero-Copy)
+                            std::memcpy(header_ptr + 3, parse_buffer + offset + 16, payload_size);
+                            
+                            fZmqPublisher.send(msg, zmq::send_flags::dontwait);
+                            zmq_timer = current_time;
+                            sent_this_chunk = true;
+                        }
+                    }
+                    offset += event_byte_size; 
+                }
+
+                // 3. 파싱하고 남은 찢어진 자투리(Residual) 데이터를 다음 턴을 위해 안전하게 보관
+                fResidualSize = total_parse_size - offset;
+                if (fResidualSize > 0) {
+                    std::memcpy(fResidualBuffer, parse_buffer + offset, fResidualSize);
+                }
+                delete[] parse_buffer;
+                // -----------------------------------------------------------------
 
                 if (maxEvents > 0 && current_events >= maxEvents) {
                     std::cout << "\n\n"; 
