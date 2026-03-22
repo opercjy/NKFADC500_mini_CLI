@@ -23,7 +23,6 @@ Fadc500Device::~Fadc500Device() {
 void Fadc500Device::Initialize(FadcBD* bdConfig) {
     ELog::Print(ELog::INFO, Form("Initializing FADC500 Mini (MID: %d) with Custom Settings...", fSid));
     
-    // 💡 [핵심 패치] 벤더 함수의 무한루프에 갇히기 전에, 파이프라인의 쓰레기를 먼저 완전 소각합니다!
     ClearAndFlushUSB();
     
     NKFADC500write_DSR(fSid, bdConfig->GetSAMPLING());
@@ -92,7 +91,7 @@ void Fadc500Device::ClearAndFlushUSB() {
                 if (raw_bcount == 0xFFFFFFFF) break;
                 
                 unsigned int next_bcount = raw_bcount & 0x0000FFFF;
-                if (next_bcount >= bcount_kb) break; // 무한루프 방어
+                if (next_bcount >= bcount_kb) break; 
                 bcount_kb = next_bcount;
             }
             delete[] safe_dummy;
@@ -117,8 +116,19 @@ unsigned int Fadc500Device::ReadBCOUNT() {
     return NKFADC500read_BCOUNT(fSid);
 }
 
-void Fadc500Device::ReadDATA(unsigned int bcount_kb, unsigned char* dest) {
-    if (bcount_kb > 0) {
-        NKFADC500read_DATA(fSid, bcount_kb, (char*)dest);
+// 💡 [Phase 6: 단선 예외 처리] Error -4 감지 시 즉각 사망 코드 반환
+int Fadc500Device::ReadData(unsigned int bytes_to_read, unsigned char* dest) {
+    if (bytes_to_read > 0) {
+        int stat = NKFADC500read_DATA(fSid, bytes_to_read / 1024, (char*)dest);
+        if (stat < 0) {
+            // libusb 레벨의 단선(-4) 확인 
+            if (stat == -4) {
+                ELog::Print(ELog::FATAL, "CRITICAL: USB Cable Disconnected! (Error -4)");
+                return -4; 
+            }
+            return stat;
+        }
+        return bytes_to_read;
     }
+    return 0;
 }
