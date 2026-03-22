@@ -53,7 +53,7 @@ bool ConfigParser::Parse(const std::string& filename, RunInfo* runInfo) {
 
             if (values.empty()) continue;
 
-            // 💡 [핵심] 값이 1개면 4채널에 일괄 적용, 값이 4개면 개별 적용
+            // [핵심] 값이 1개면 4채널에 일괄 적용, 값이 4개면 개별 적용
             if (values.size() == 1) {
                 for (int i = 0; i < current_bd->NCHANNEL(); i++) {
                     if (key == "THR")         current_bd->SetTHR(i, values[0]);
