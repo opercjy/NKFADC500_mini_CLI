@@ -1,17 +1,19 @@
 #include <iostream>
 #include <csignal>
-#include <atomic>
 #include <unistd.h>
+#include <thread>
+#include <chrono>
 
 #include "BinaryDaqManager.hh"
+#include "ConfigParser.hh"
 #include "RunInfo.hh"
 #include "ELog.hh"
 
-// 전역 객체로 선언하여 시그널 핸들러에서 접근 가능하도록 함
 BinaryDaqManager* gDaqManager = nullptr;
 
 void SigIntHandler(int /*signum*/) {
-    std::cout << "\n\033[1;33m[INFO] Interrupt signal (Ctrl+C) received! Shutting down gracefully...\033[0m" << std::endl;
+    std::cout << std::endl;
+    ELog::Print(ELog::WARNING, "Interrupt signal (Ctrl+C) received! Shutting down gracefully...");
     if (gDaqManager) {
         gDaqManager->Stop();
     }
@@ -21,8 +23,8 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, SigIntHandler);
     std::signal(SIGTERM, SigIntHandler);
 
-    std::string configFile = "config/settings.cfg";
-    std::string outFile = "raw_data.dat"; // 순수 바이너리 확장자
+    std::string configFile = "../config/settings.cfg";
+    std::string outFile = ""; 
 
     int opt;
     while((opt = getopt(argc, argv, "f:o:")) != -1) {
@@ -32,32 +34,34 @@ int main(int argc, char** argv) {
         }
     }
 
-    // 1. RunInfo 객체 생성 및 (TODO: Config 파싱 로직 적용)
+    // [핵심] ConfigParser를 이용해 settings.cfg를 읽고 RunInfo 객체에 세팅
     RunInfo runInfo;
-    FadcBD* bd = runInfo.AddFadcBD(0); // MID = 0 으로 보드 1개 세팅
-    bd->SetTHR(0, 50); // 기본 임시 세팅값 (향후 ConfigParser 연동)
-    bd->SetDACOFF(0, 2048);
-
+    if (!ConfigParser::Parse(configFile, &runInfo)) {
+        ELog::Print(ELog::FATAL, "Failed to parse configuration file. Exiting.");
+        return 1;
+    }
     runInfo.PrintInfo();
 
-    // 2. DAQ 관리자 초기화
+    if (outFile.empty()) {
+        outFile = Form("run_%04d.dat", runInfo.GetRunNumber());
+    }
+
+    // 세팅된 runInfo를 매니저에 넘김 -> 내부에서 Fadc500Device가 이를 읽고 초기화함
     gDaqManager = new BinaryDaqManager(&runInfo);
 
-    std::cout << "\n\033[1;32m====================================================\033[0m" << std::endl;
-    std::cout << "\033[1;32m      NKFADC500 Mini Binary DAQ is RUNNING\033[0m" << std::endl;
-    std::cout << "\033[1;32m      (Press Ctrl+C to abort and save data)\033[0m" << std::endl;
-    std::cout << "\033[1;32m====================================================\033[0m\n" << std::endl;
+    std::cout << "\n\033[1;36m========================================================\033[0m" << std::endl;
+    std::cout << "\033[1;32m       NKFADC500 Mini Binary DAQ is RUNNING\033[0m" << std::endl;
+    std::cout << Form("\033[1;33m       [Target File] %s\033[0m", outFile.c_str()) << std::endl;
+    std::cout << "\033[1;36m========================================================\033[0m\n" << std::endl;
 
-    // 3. 수집 시작
     gDaqManager->Start(outFile);
 
-    // 4. 메인 스레드 유지
     while (gDaqManager->IsRunning()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     delete gDaqManager;
-    std::cout << "\033[1;36m[DAQ] System fully stopped and safely exited.\033[0m" << std::endl;
+    ELog::Print(ELog::INFO, "DAQ System fully stopped and safely exited.");
 
     return 0;
 }
