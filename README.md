@@ -36,15 +36,38 @@ Notice Korea의 FADC500 Mini (500MS/s, 12-bit, 4-Channel) 보드를 제어하고
 
 -----
 
-## 🚀 2. 필수 의존성 및 권한 설정 (Prerequisites)
+## 📁 2. 디렉토리 및 소스 코드 구조 (Directory Structure)
+본 프로젝트는 C++ 표준 개발론에 따라 역할별로 디렉토리가 철저하게 분리되어 있습니다.
 
-### 2.1 패키지 요구사항
+Plaintext
+```
+NKFADC500_mini_CLI/
+├── app/                  # [Application Layer] 최종 실행 파일 생성 소스
+│   ├── frontend_main.cpp   # 초고속 바이너리 수집기 (frontend_500_mini)
+│   ├── production_main.cpp # 오프라인 ROOT 변환기 (production_500_mini)
+│   └── online_monitor.cpp  # 실시간 라이브 뷰어 (online_monitor)
+├── core/                 # [Engine Layer] 하드웨어 제어 및 DAQ 코어 모듈 (Static 라이브러리)
+│   ├── include/ & src/     # Fadc500Device, BinaryDaqManager, ConfigParser, ELog
+├── objects/              # [Data Layer] ROOT C++ 데이터 모델 (Shared 라이브러리 및 Dictionary)
+│   ├── include/ & src/     # RawData, RawChannel, RunInfo, FadcBD 
+├── gui/                  # [GUI Layer] PyQt5 기반 통합 제어 패널 (Phase 5)
+│   ├── main.py             # GUI 진입점 (Entry Point)
+│   ├── windows/            # 메인 윈도우 레이아웃 오케스트레이터
+│   └── widgets/            # 기능별 독립 탭 위젯 (DaqTab, ConfigTab 등)
+├── config/               # 하드웨어 구동 환경설정 파일 (settings.cfg)
+├── rules/                # Linux udev USB 장치 인식 규칙 스크립트
+└── CMakeLists.txt        # 최상위 빌드 스크립트 (모듈 통합 빌드 및 링킹)
+```
+
+## 🚀 3. 필수 의존성 및 권한 설정 (Prerequisites)
+
+### 3.1 패키지 요구사항
 
   * **CERN ROOT 6** (환경변수 `thisroot.sh` 로드 필요)
   * **CMake 3.16+**, **GCC 지원 C++17 컴파일러**
   * `libusb-1.0` 라이브러리 (RHEL/Fedora: `libusb1-devel`, Ubuntu: `libusb-1.0-0-dev`)
 
-### 2.2 USB 장치 권한 등록 (udev rules)
+### 3.2 USB 장치 권한 등록 (udev rules)
 
 일반 유저 권한으로 USB 3.0 통신을 수행하기 위해 장치 권한을 먼저 시스템에 등록해야 합니다. (최초 1회만 수행)
 
@@ -57,7 +80,7 @@ sudo udevadm trigger
 
 -----
 
-## 🛠️ 3. 설치 및 빌드 가이드 (Build & Installation)
+## 🛠️ 4. 설치 및 빌드 가이드 (Build & Installation)
 
 ### Phase 1: 제조사 로우레벨 라이브러리 컴파일 (⚠️ 반드시 `su` 권한 진행)
 
@@ -106,9 +129,9 @@ make -j4
 
 -----
 
-## 🏃 4. 시스템 구동 매뉴얼 (Usage)
+## 🏃 5. 시스템 구동 매뉴얼 (Usage)
 
-### 4.1 하드웨어 설정 파일 (`config/settings.cfg`) 구성 및 이해
+### 5.1 하드웨어 설정 파일 (`config/settings.cfg`) 구성 및 이해
 
 데이터 수집 전, `config/settings.cfg` 파일을 열어 하드웨어 파라미터를 물리적 환경에 맞게 조율합니다.
 *(하나의 값을 적으면 4개 채널 전체에 일괄 적용되며, 4개의 값을 띄어쓰기로 적으면 Ch0 \~ Ch3에 각각 독립적으로 적용됩니다.)*
@@ -135,7 +158,7 @@ make -j4
       * `0` (Bypass): 필터를 끄고 날것(Raw)의 파형을 그대로 받습니다. PMT나 SiPM처럼 빠르고 날카로운 신호 관측 시 필수입니다.
       * `1` 이상: 이동 평균(Moving Average) 등 저/고주파 필터를 적용합니다. HPGe처럼 느린 신호의 노이즈를 깎아내어 정확한 전하량(Charge)을 구할 때 유리합니다.
 
-### 4.2 데이터 수집 가동 (Frontend)
+### 5.2 데이터 수집 가동 (Frontend)
 
 설정이 완료되었다면 아래 명령어로 초고속 덤프 수집기를 가동합니다.
 
@@ -153,7 +176,7 @@ make -j4
 
 💡 **Graceful Shutdown:** 수집을 도중에 종료하려면 **`Ctrl + C`** 를 한 번만 입력하십시오. 진행 중이던 버퍼를 디스크에 모두 안전하게 내려쓴 뒤, Run Summary(요약 통계)를 출력하고 정상 종료됩니다.
 
-### 4.3 오프라인 변환 (Production)
+### 5.3 오프라인 변환 (Production)
 
 수집된 순수 바이너리(`.dat`) 데이터를 ROOT TTree 형태(`.root`)로 초고속 파싱합니다.
 터미널에서 변환 진행률과 ETA(예상 남은 시간)가 실시간으로 표시됩니다.
@@ -169,7 +192,7 @@ make -j4
   * 변환이 완료되면 원본 파일 이름에 `_prod`가 붙은 `run_0001_prod.root` 파일이 생성됩니다.
   * `-w` 옵션을 부여하면 `wTime_ChX`, `wDrop_ChX` 등 ROOT TGraph로 쉽게 그릴 수 있는 Vector Branch가 트리에 추가로 기록됩니다.
 
-### 4.4 실시간 라이브 파형 뷰어 (Online Monitor)
+### 5.4 실시간 라이브 파형 뷰어 (Online Monitor)
 
 프론트엔드 수집기가 돌아가고 있는 와중에 **별도의 터미널 창**을 열어 실시간으로 파형과 전하량 스펙트럼(Charge Spectrum)을 모니터링할 수 있습니다. `tail -f` 방식처럼 동작하므로 파일의 성장을 실시간으로 추적합니다.
 
@@ -187,7 +210,7 @@ make -j4
 
 -----
 
-## 🗺️ 5. 개발 로드맵 (Roadmap)
+## 🗺️ 6. 개발 로드맵 (Roadmap)
 
   - [x] **Phase 1:** 객체지향(OOP) 기반 코어 아키텍처 및 CMake 빌드 시스템 통합
   - [x] **Phase 2:** 초고속 무결성 바이너리 수집기(Frontend) 구현 완료 (Fail-Safe, Real-time Dashboard 탑재)
