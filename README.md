@@ -4,7 +4,7 @@
 ![ROOT](https://img.shields.io/badge/Framework-CERN%20ROOT%206-005aaa?style=flat-square)
 ![CMake](https://img.shields.io/badge/Build-CMake-064F8C?style=flat-square&logo=cmake&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?style=flat-square&logo=linux&logoColor=black)
-![Status](https://img.shields.io/badge/Status-Phase_3_Complete-brightgreen?style=flat-square)
+![Status](https://img.shields.io/badge/Status-Phase_5_Complete-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/License-Notice_Authorized-red?style=flat-square)
 
 [Notice Hardware Maintenance & Development Declaration]
