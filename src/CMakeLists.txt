@@ -2,11 +2,12 @@
 # Applications (Frontend, Production, Viewer) CMake
 # ==============================================================================
 
-# 1. Frontend (Online DAQ) : 초고속 바이너리 수집기
-# - 하드웨어 제어를 위해 Notice 제조사 라이브러리 및 libusb-1.0 강력 링크
+# 1. Frontend (Online DAQ) : 초고속 바이너리 수집기 (OOP 기반)
 add_executable(frontend_500_mini 
     frontend_main.cpp 
-    DaqSystem.cpp
+    BinaryDaqManager.cpp
+    Fadc500Device.cpp
+    # (ELog.cc, ConfigParser.cc 등은 추후 필요시 여기에 추가)
 )
 target_include_directories(frontend_500_mini PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../objects/include)
 target_link_libraries(frontend_500_mini PRIVATE 
@@ -14,27 +15,21 @@ target_link_libraries(frontend_500_mini PRIVATE
     usb3com 
     nkusb 
     usb-1.0 
-    FADC500Objects  # 설정 파일(RunInfo) 파싱 용도
+    FADC500Objects
     ${ROOT_LIBRARIES}
 )
 
-# 2. Production (Offline) : 바이너리 -> ROOT 변환 및 파형 분석기
+# 2. Production (Offline) : 바이너리 -> ROOT 변환기 (뼈대)
 add_executable(production_500_mini 
     production_main.cpp 
-    Processor.cpp
+    # Processor.cpp
 )
 target_include_directories(production_500_mini PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../objects/include)
-target_link_libraries(production_500_mini PRIVATE 
-    FADC500Objects 
-    ${ROOT_LIBRARIES}
-)
+target_link_libraries(production_500_mini PRIVATE FADC500Objects ${ROOT_LIBRARIES})
 
-# 3. Visualize : ROOT 파형 및 히스토그램 뷰어
+# 3. Visualize : 뷰어 (뼈대)
 add_executable(visualize_waveforms 
     visualize_waveforms.cpp
 )
 target_include_directories(visualize_waveforms PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../objects/include)
-target_link_libraries(visualize_waveforms PRIVATE 
-    FADC500Objects 
-    ${ROOT_LIBRARIES}
-)
+target_link_libraries(visualize_waveforms PRIVATE FADC500Objects ${ROOT_LIBRARIES})
