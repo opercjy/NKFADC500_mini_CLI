@@ -36,11 +36,11 @@ Notice Korea의 FADC500 Mini (500MS/s, 12-bit, 4-Channel) 보드를 제어하고
 
 -----
 
-## 🖥️ 2. GUI 마스터 패널 및 사용자 경험 (UI & UX)
+## 🖥️ 2. 그래픽 인터페이스 및 사용자 경험
 
 본 프로젝트의 Phase 5로 완성된 통합 GUI 패널은 복잡한 설정 파일과 터미널 명령어 입력의 고통을 덜어주고, 직관적인 대시보드를 통해 실험의 가시성을 극대화합니다.
 
-*(📸 아래 캡처 이미지들은 실제 구동 화면입니다)*
+*(📸 실제 구동 화면 마지막 하단에 배치 하였습니다)*
 
 ### 🚀 2.1 메인 대시보드 및 실시간 수집 뷰 (DAQ Control & Live Dashboard)
 
@@ -140,10 +140,21 @@ make -j4
 
 ## 📖 5. 감사의 글 (Acknowledgements)
 
-본 DAQ 시스템이 세상에 나올 수 있도록 보이지 않는 곳에서 헌신해 주신 수많은 분들과 인프라에 깊은 감사를 표합니다.
+**대한민국 국민 여러분께**
+당장의 가시적인 이익이 보이지 않는 기초 과학의 길을 묵묵히 걸을 수 있는 것은, 국민 여러분께서 땀 흘려 조성해 주신 소중한 연구 기금 덕분입니다. 이 시스템이 앞으로 포착해 낼 우주의 미세한 신호들은 모두 국민 여러분의 지지와 성원이 만들어낸 결실입니다. 보내주신 아낌없는 믿음에 깊이 감사드리며, 그 무거운 책임감과 자긍심을 안고 연구의 최전선에서 쉼 없이 탐구하겠습니다.
 
-**대한민국 국민 여러분의 땀방울과 성원에 바칩니다**
-우주의 근본을 탐구하는 기초 과학의 험난한 여정을 묵묵히 걸을 수 있는 것은, 국민 여러분께서 땀 흘려 조성해 주신 소중한 연구 기금 덕분입니다. 당장의 눈부신 이익이 보이지 않는 척박한 길임에도 아낌없는 믿음과 성원을 보내주심에 깊이 감사드립니다. 이 시스템이 포착해 낼 우주의 미세한 신호들은 곧 대한민국 과학 역사에 새겨질 국민 여러분의 위대한 발자취입니다. 여러분께서 쥐여주신 자긍심을 가슴 깊이 새기고, 세계의 최전선에서 쉼 없이 탐구하겠습니다.
+**Notice Korea 김상열 대표(박사)님께**
+뛰어난 하드웨어를 설계해 주신 Notice Korea 김상열 박사님께 깊은 감사를 드립니다. 아낌없이 공유해 주신 로우 레벨 로직과 API 래퍼, 직접 빌드해 주신 FPGA 스크립트와 상세한 테스트 코드는 이 프로젝트를 완성하는 가장 든든한 기반이 되었습니다. 하드웨어의 깊은 곳까지 세밀하게 짚어주신 박사님의 헌신과 장인 정신에 진심 어린 경의를 표합니다.
 
-**Notice Korea 김상열 박사님께**
-최전선에서 뛰어난 하드웨어를 설계해 주신 Notice Korea 김상열 박사님께 진심 어린 감사를 올립니다. 아낌없이 공유해 주신 로우 레벨 로직(Low-level logic)과 API 래퍼, 그리고 직접 FPGA 스크립트를 빌드해 주시며 남겨주신 상세한 테스트 코드들은 이 프로젝트를 지탱하는 가장 강력한 뼈대가 되었습니다. 하드웨어의 깊은 곳까지 친절하게 이끌어주신 박사님의 장인 정신에 무한한 경의를 표합니다.
+## GUI 마스터 패널 및 사용자 경험 (UI & UX)
+<img width="1260" height="940" alt="image" src="https://github.com/user-attachments/assets/4ccb7833-b175-4509-9694-eac3a2f078fd" />
+<img width="1620" height="840" alt="image" src="https://github.com/user-attachments/assets/427a3dae-dff1-4d9c-984b-abbf548d4bc2" />
+<img width="1260" height="940" alt="image" src="https://github.com/user-attachments/assets/2f07e20b-62df-4656-94d8-790a0e8cc9e0" />
+<img width="1260" height="940" alt="image" src="https://github.com/user-attachments/assets/c680e1b0-6808-4414-bc6d-4db44c4048ff" />
+<img width="1260" height="940" alt="image" src="https://github.com/user-attachments/assets/cd1f1e40-5297-4758-b0b7-98ec2643c947" />
+<img width="1260" height="940" alt="image" src="https://github.com/user-attachments/assets/9366296d-e999-4835-9f10-555387bf28fe" />
+<img width="1260" height="940" alt="image" src="https://github.com/user-attachments/assets/2fac9490-d3f0-4182-96fc-482e503796ec" />
+<img width="1260" height="940" alt="image" src="https://github.com/user-attachments/assets/9b3c8240-a9ab-40d3-af5d-89c0d50d0f82" />
+<img width="1220" height="832" alt="image" src="https://github.com/user-attachments/assets/d7ed0213-36a0-4139-bee8-e8dbd8a57d74" />
+<img width="1260" height="940" alt="image" src="https://github.com/user-attachments/assets/0ba21ef0-d4cc-453d-942e-56e4bdb83c55" />
+<img width="1260" height="940" alt="image" src="https://github.com/user-attachments/assets/a4e0bc36-e3a8-4276-a8a8-2f10f70ed5b7" />
