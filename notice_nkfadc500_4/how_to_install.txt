@@ -1,0 +1,38 @@
+0. copy notice files
+   (1) tar -zxvf notice.tgz (usually to /usr/local/)
+   (2) if you copy files to other directory, 
+       modify NKHOME path in notice_env.sh
+
+1. install ROOT package (v6.x)
+   (1) find package @ root.cern.ch
+   (2) edit NKHOME/notice_env.sh
+       modify ROOTHOME path where you install root package
+
+2. install libusb-dev package
+   (1) apt-get install libusb-1.0.0-dev
+   (2) edit NKHOME/notice_env.sh
+       check LIBUSB_INC directory if libusb.h is there
+       (if not please modify directory)
+       check LIBUSB_LIB directory if libusb-1.0.so is there
+       (if not please modify directory)
+
+3. install library
+   (1) login as super user
+
+   (2) goto NKHOME/src/nkusb/nkusb
+       make clean -> make install
+       goto NKHOME/src/nkusb/nkusbroot
+       make clean -> make install
+
+   (3) goto NKHOME/src/usb3com/usb3com
+       make clean -> make install
+       goto NKHOME/src/usb3com/usb3comroot
+       make clean -> make install
+
+   (4) goto NKHOME/src/nkfadc500/nkfadc500
+       make clean -> make install
+       goto NKHOME/src/nkfadc500/nkfadc500root
+       make clean -> make install
+
+   
+

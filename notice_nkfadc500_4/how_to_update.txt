@@ -1,0 +1,27 @@
+1. install programmer software
+   (1) login as super user
+
+   (2) goto NKHOME/programmer/nkfadc500
+       make clean -> make
+       
+2. update mini_tcb firmware
+   (0) need for future update
+   (1) get new firmware(if necessary) from Notice company
+   (2) login as super user
+       and follow menu.
+       
+3. update nkfadc500 firmware
+   (0) need for future update
+   (1) get new firmware(if necessary) from Notice company
+   (2) login as super user
+       1) show module status
+         ./programmer_nkfadc500.exe -dev -info
+       2) update FPGA firmware
+         ./programmer_nkfadc500.exe -dev -all -fpga firmware_name.bit
+       3) update MCU firmware
+         ./programmer_nkfadc500.exe -dev -all -fx3 firmware_name.img
+       4) update SID for ADC module
+         ./programmer_nkfadc500.exe -dev -all -set-address new_sid_number
+         
+   
+

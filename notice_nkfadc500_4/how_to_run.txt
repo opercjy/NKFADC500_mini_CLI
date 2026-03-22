@@ -1,0 +1,14 @@
+0. login as super user
+   goto NKHOME/test/mini_nkfadc500
+
+1. edit setting
+   (1) edit nkfadc500_4_test.C
+       (please consult FADC500IBS manual)
+   
+2. take data
+   (1) root
+   (2) .L nkfadc500_4_test.C
+   (3) run_nkfadc500(#_of_events_to_take)
+   (4) .q
+   
+
