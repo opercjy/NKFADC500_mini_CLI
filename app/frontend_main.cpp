@@ -5,6 +5,7 @@
 #include <chrono>
 #include <getopt.h>
 #include <cstdlib>
+#include <csignal>
 
 #include "RunInfo.hh"
 #include "ConfigParser.hh"
@@ -55,6 +56,7 @@ int main(int argc, char** argv) {
 
     // 시그널 핸들러 등록
     std::signal(SIGINT, SignalHandler);
+    std::signal(SIGTERM, SignalHandler); // <--- 이 줄을 반드시 추가하십시오!
 
     // 설정 파싱
     RunInfo runInfo;

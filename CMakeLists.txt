@@ -24,7 +24,7 @@ include(${ROOT_USE_FILE})
 
 # 2. 제조사 라이브러리(NKHOME) 환경 변수 검증 및 경로 연동
 if(NOT DEFINED ENV{NKHOME})
-    message(FATAL_ERROR "[ERROR] NKHOME is not set! Please run: source notice_nkfadc500_4/notice/notice_env.sh")
+    message(FATAL_ERROR "[ERROR] NKHOME is not set!\nPlease run: source notice_nkfadc500_4/notice/notice_env.sh")
 endif()
 set(NKHOME $ENV{NKHOME})
 
@@ -34,7 +34,8 @@ link_directories(${NKHOME}/lib)
 
 # 3. 하위 모듈 빌드 트리
 add_subdirectory(objects)
-add_subdirectory(core)   # 새로 추가됨
-add_subdirectory(app)    # 새로 추가됨 (기존 src 대체)
+add_subdirectory(core)   
+add_subdirectory(app)    
+add_subdirectory(gui) 
 
-message(STATUS "✅ NKFADC500_mini CMake configuration completed successfully.")
+message(STATUS "NKFADC500_mini CMake configuration completed successfully.")

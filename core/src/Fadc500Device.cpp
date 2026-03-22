@@ -9,8 +9,6 @@ extern "C" {
 
 Fadc500Device::Fadc500Device(int sid) : fSid(sid) {
     USB3Init(0);
-    
-    // 💡 [복구된 버그 픽스] 장비 오픈을 시도하고, 실패하면 무한루프에 빠지기 전에 즉시 프로그램 종료!
     int status = NKFADC500open(fSid, 0); 
     if (status < 0) {
         ELog::Print(ELog::FATAL, Form("Cannot open FADC500 Mini (MID: %d). Please check power and USB connection!", fSid));
@@ -52,7 +50,6 @@ void Fadc500Device::Initialize(FadcBD* bdConfig) {
         NKFADC500write_DLY(fSid, cid, apply_dly);
         NKFADC500write_THR(fSid, cid, bdConfig->GetTHR(ch));
         NKFADC500write_POL(fSid, cid, bdConfig->GetPOL(ch));
-        
         NKFADC500write_PSW(fSid, cid, bdConfig->GetPSW(ch));
         NKFADC500write_AMODE(fSid, cid, bdConfig->GetAMODE(ch));
         NKFADC500write_PCT(fSid, cid, bdConfig->GetPCT(ch));
@@ -69,14 +66,11 @@ void Fadc500Device::Initialize(FadcBD* bdConfig) {
     NKFADC500write_PSCALE(fSid, bdConfig->GetPRESCALE());
     NKFADC500write_TRIGENABLE(fSid, bdConfig->GetTRIGEN());
 
-    // 💡 [유지됨] 500개 버퍼 제한 해제 로직
     NKFADC500reset(fSid);
-
     ELog::Print(ELog::INFO, "Hardware initialization complete.");
 }
 
 void Fadc500Device::StartDAQ() { 
-    // 보드 버퍼를 싹 비우고, 새 마음 새 뜻으로 시작!
     NKFADC500reset(fSid); 
     NKFADC500start(fSid); 
 }
@@ -92,9 +86,6 @@ unsigned int Fadc500Device::ReadBCOUNT() {
 void Fadc500Device::ReadDATA(unsigned int bcount_kb, unsigned char* dest) {
     if (bcount_kb > 0) {
         NKFADC500read_DATA(fSid, bcount_kb, (char*)dest);
-        
-        // 💡 [유지됨] 보드에게 "내가 데이터 1뭉치 잘 가져갔어. 다음꺼 또 모아서 줘!" 라고 알려줌
-        NKFADC500reset(fSid); 
-        NKFADC500start(fSid); 
+        // 💡 [버그 픽스] 이곳에 있던 reset()과 start()를 삭제했습니다! (이것이 1틱 버그의 원인)
     }
 }

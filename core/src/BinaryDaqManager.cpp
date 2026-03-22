@@ -29,7 +29,6 @@ void BinaryDaqManager::Start(const std::string& outFileName, int maxEvents, int 
     if (fIsRunning) return;
     fIsRunning = true;
     
-    // 💡 [UI 개선 1] 시작 시간을 상단 배너 직전에 출력 (frontend_main에서 출력하던 부분을 이쪽으로 일원화하면 더 깔끔하지만, 현재 구조상 Monitor 배너에 추가)
     auto now = std::chrono::system_clock::now();
     std::time_t start_time_t = std::chrono::system_clock::to_time_t(now);
     
@@ -75,6 +74,10 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
+
+        // 💡 [필수 추가] 128KB 강제 정렬! 하드웨어 뻗음 방지
+        bcount_kb = (bcount_kb / 128) * 128;
+
         if (bcount_kb == 0) {
             std::this_thread::sleep_for(std::chrono::microseconds(100)); 
             continue;
@@ -127,9 +130,6 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
     int last_print_events = 0;
     size_t last_print_bytes = 0;
 
-    // 초기 모니터 배너 출력
-    std::cout << "\033[1;36m[  DAQ Real-time Monitor  ]\033[0m\n";
-
     while (fIsRunning || fDataQueue.Size() > 0) {
         RawBuffer* popBuffer = nullptr;
         
@@ -159,19 +159,17 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
         if (ui_elapsed_sec >= 0.5) {
             double speed_mbps = (((total_written_bytes - last_print_bytes) / 1048576.0) / ui_elapsed_sec);
             double evt_rate = (current_events - last_print_events) / ui_elapsed_sec;
-            
-            // 💡 [UI 개선 2] 현재까지의 총 진행 시간(Total Elapsed) 계산
             double total_elapsed = std::chrono::duration<double>(current_time - perf_start_time).count();
             
-            // 터미널 줄 맨 위로 올라가서 배너 내용 덮어쓰기 (\033[F 로 이전 줄 이동)
-            std::cout << "\r\033[F\033[K" << "\033[1;36m[  DAQ Real-time Monitor  ]\033[0m"
-                      << "  ( Elapsed: \033[1;32m" << std::fixed << std::setprecision(1) << total_elapsed << " s\033[0m )\n"
-                      << "\r\033[K" 
-                      << "   \033[1;33mEvents:\033[0m " << std::setw(7) << current_events << " | "
-                      << "\033[1;32mSize:\033[0m " << std::setw(6) << std::fixed << std::setprecision(2) << (total_written_bytes / 1048576.0) << " MB | "
-                      << "\033[1;35mRate:\033[0m " << std::setw(6) << std::fixed << std::setprecision(1) << evt_rate << " Hz | "
-                      << "\033[1;34mSpeed:\033[0m " << std::setw(6) << std::fixed << std::setprecision(2) << speed_mbps << " MB/s" 
-                      << std::flush;
+            // 💡 [버그 픽스] \r을 빼고 \n을 넣어서 OS 파이프 버퍼링 체증을 해소!
+            std::cout << "[LIVE DAQ] "
+                      << "Time: \033[1;32m" << std::fixed << std::setprecision(1) << total_elapsed << "s\033[0m | "
+                      << "Events: " << current_events << " | "
+                      << "Size: " << std::fixed << std::setprecision(2) << (total_written_bytes / 1048576.0) << " MB | "
+                      << "Rate: " << std::fixed << std::setprecision(1) << evt_rate << " Hz | "
+                      << "Speed: " << std::fixed << std::setprecision(2) << speed_mbps << " MB/s | "
+                      << "DataQ: " << fDataQueue.Size() << " | "
+                      << "Pool: " << fFreeQueue.Size() << "\n" << std::flush;
             
             ui_timer = current_time;
             last_print_events = current_events;

@@ -44,7 +44,6 @@ int main(int argc, char** argv) {
     TH1F* hSpec[4];
     TLine* lBase[4];
 
-    // 💡 [최적화 1] 메모리 릭 방지: 객체 생성과 Draw()는 루프 진입 전 "딱 한 번만" 실행
     for (int i = 0; i < 4; i++) {
         hWave[i] = new TH1I(Form("hWave_%d", i), Form("Channel %d Live;Time (ns);ADC Count", i), 1024, 0, 2048);
         hWave[i]->SetLineColor(kAzure + 2);
@@ -62,12 +61,10 @@ int main(int argc, char** argv) {
         lBase[i]->SetLineStyle(2);
         lBase[i]->SetLineWidth(2);
 
-        // 상단: 파형 영역 초기 렌더링
         c1->cd(i + 1);
         hWave[i]->Draw("HIST");
         lBase[i]->Draw("SAME");
 
-        // 하단: 스펙트럼 영역 초기 렌더링
         c1->cd(i + 5);
         gPad->SetLogy();
         hSpec[i]->Draw("HIST");
@@ -78,12 +75,10 @@ int main(int argc, char** argv) {
     unsigned int liveEventID = 0;
     auto last_update = std::chrono::steady_clock::now();
 
-    // 💡 [최적화 2] 메모리 할당 부하 제거: 백터 메모리 풀(Pool)을 루프 밖으로 빼서 재사용
     std::vector<unsigned char> payload;
     std::vector<unsigned short> wave[4];
 
     while (true) {
-        // 💡 [최적화 3] 창 닫힘 감지: 사용자가 'X' 버튼을 누르면 좀비 캔버스 생성 없이 즉시 루프 탈출
         if (!gROOT->GetListOfCanvases()->FindObject("c1")) {
             ELog::Print(ELog::INFO, "Monitor window closed by user. Shutting down gracefully...");
             break;
@@ -95,7 +90,8 @@ int main(int argc, char** argv) {
             clearerr(fp); 
             gSystem->ProcessEvents(); 
             std::this_thread::sleep_for(std::chrono::milliseconds(20)); 
-            if (bytes_read > 0) fseek(fp, -bytes_read, SEEK_CUR);
+            // 💡 [수정 완료] static_cast<long> 추가
+            if (bytes_read > 0) fseek(fp, -static_cast<long>(bytes_read), SEEK_CUR);
             continue;
         }
 
@@ -109,12 +105,12 @@ int main(int argc, char** argv) {
         int num_samples = (data_length - 32) / 2; 
         int payload_bytes = num_samples * 8; 
 
-        // 벡터 재할당(new/delete) 없이 기존 메모리 공간(Capacity)만 리사이징하여 재사용
         payload.resize(payload_bytes);
         bytes_read = fread(payload.data(), 1, payload_bytes, fp);
         
         if (bytes_read < (size_t)payload_bytes) {
-            fseek(fp, -(128 + bytes_read), SEEK_CUR); 
+            // 💡 [수정 완료] static_cast<long> 추가
+            fseek(fp, -static_cast<long>(128 + bytes_read), SEEK_CUR); 
             clearerr(fp);
             gSystem->ProcessEvents();
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -123,7 +119,6 @@ int main(int argc, char** argv) {
 
         liveEventID++;
 
-        // 파형 메모리 풀 비우기 (메모리 해제가 아님)
         for(int i=0; i<4; i++) {
             wave[i].clear();
             if (wave[i].capacity() < static_cast<size_t>(num_samples)) wave[i].reserve(num_samples);
@@ -179,7 +174,6 @@ int main(int argc, char** argv) {
                 lBase[i]->SetX2(num_samples * 2.0); 
                 lBase[i]->SetY2(bsl);
 
-                // 💡 [최적화 4] Draw() 호출 금지! 이미 그려진 객체의 데이터만 갱신하고 Pad에 알림(Modified)
                 c1->cd(i + 1);
                 gPad->Modified(); 
 
@@ -187,7 +181,7 @@ int main(int argc, char** argv) {
                 gPad->Modified(); 
             }
             
-            c1->Update(); // 화면 일괄 갱신
+            c1->Update(); 
             last_update = now;
         }
 
