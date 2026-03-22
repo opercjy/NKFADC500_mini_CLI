@@ -15,7 +15,7 @@ struct RawBuffer {
     RawBuffer(size_t cap) : size(0), capacity(cap) {
         data = new unsigned char[capacity];
     }
-    ~RawData() { delete[] data; }
+    ~RawBuffer() { delete[] data; }
 };
 
 class RawBufferPool {
