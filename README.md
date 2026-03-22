@@ -1,40 +1,47 @@
+# NKFADC500_mini_CLI : NoticeDAQ Standalone Control
 
-# NKFADC500\_mini\_CLI : NoticeDAQ Standalone Control
+![C++](https://img.shields.io/badge/C++-17-blue?style=flat-square&logo=c%2B%2B)
+![ROOT](https://img.shields.io/badge/Framework-CERN%20ROOT%206-005aaa?style=flat-square)
+![CMake](https://img.shields.io/badge/Build-CMake-064F8C?style=flat-square&logo=cmake&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?style=flat-square&logo=linux&logoColor=black)
+![Status](https://img.shields.io/badge/Status-Phase_3_Complete-brightgreen?style=flat-square)
+![License](https://img.shields.io/badge/License-Notice_Authorized-red?style=flat-square)
 
 Notice Korea의 FADC500 Mini (500MS/s, 12-bit, 4-Channel) 보드를 제어하고, 초고속으로 바이너리 데이터를 수집하여 ROOT 프레임워크 기반으로 분석하기 위한 **고성능 하이브리드 C++ DAQ 아키텍처**입니다.
 
-향후 GUI 연동 및 다양한 분석 모듈 추가가 용이하도록 객체지향적(OOP)이고 확장 가능한 구조로 설계되었으며, 극단적인 고속 트리거 환경에서도 시스템이 뻗지 않도록 \*\*무결성 방어 로직(Zero-Deadlock)\*\*이 적용되어 있습니다.
+향후 GUI 연동 및 다양한 분석 모듈 추가가 용이하도록 객체지향적(OOP)이고 확장 가능한 구조로 설계되었으며, 극단적인 고속 트리거 환경에서도 시스템이 뻗지 않도록 **무결성 방어 로직(Zero-Deadlock)**이 적용되어 있습니다.
 
------
+---
 
 ## 🏛️ 1. 시스템 아키텍처 개요 (System Architecture)
 
 본 시스템은 수집(Online)과 분석(Offline)의 병목을 완벽히 분리한 하이브리드 아키텍처를 가집니다.
 
-  * **[Core 1] Frontend (`frontend_500_mini`) : 안정성 검증 완료 (Stable)**
-      * 하드웨어 제어 및 USB 3.0(SuperSpeed) 통신 전담.
-      * 연산 오버헤드를 없애기 위해 복잡한 파싱 없이 순수 바이너리(`.dat`) 파일로 하드디스크에 고속 덤프.
-      * **[핵심 기능]**
-          * **스마트 파서:** `settings.cfg`를 통해 하드웨어의 모든 레지스터(채널별 임계값, 딜레이, 트리거 모드 등)를 유연하게 제어.
-          * **Fail-Fast & Auto-Recovery:** 하드웨어 미연결 시 즉각 종료, USB Flooding(과부하) 방어, FIFO Lock-up 자동 해제 로직 탑재.
-          * **논블로킹 UI:** 스레드 병목 없이 0.5초 주기로 터미널에 실시간 수집 속도(MB/s) 및 트리거 레이트(Hz) 출력.
-  * **[Core 2] Production (`production_500_mini`) : 개발 진행 중**
-      * 수집된 `.dat` 바이너리 파일을 읽어 12-bit 인터리브 마스킹을 해제.
-      * C++ ROOT 객체(`RawData`, `RunInfo` 등)에 담아 최종적으로 압축된 `*.root` 파일로 변환 및 적분 전하량(Charge) 추출.
-  * **[Core 3] Visualization (`online_monitor`) : 개발 예정**
-      * 오프라인 ROOT 환경에서의 파형 렌더링뿐만 아니라, 향후 **수집 중인 파형을 실시간으로 확인하는 온라인 모니터링(Online Monitoring)** 기능으로 확장 예정.
-  * **[Expansion] PyQt GUI Control Panel : 개발 예정**
-      * CLI 기반의 설정 및 구동을 마우스 클릭으로 제어할 수 있는 종합 그래픽 유저 인터페이스.
+* **[Core 1] Frontend (`frontend_500_mini`) : 안정성 검증 완료 (Stable)**
+    * 하드웨어 제어 및 USB 3.0(SuperSpeed) 통신 전담.
+    * 연산 오버헤드를 없애기 위해 복잡한 파싱 없이 순수 바이너리(`.dat`) 파일로 하드디스크에 고속 덤프.
+    * **[핵심 기능]**
+        * **스마트 파서:** `settings.cfg`를 통해 하드웨어의 모든 레지스터(채널별 임계값, 딜레이, 트리거 모드 등)를 유연하게 제어.
+        * **Fail-Fast & Auto-Recovery:** 하드웨어 미연결 시 즉각 종료, USB Flooding(과부하) 방어, FIFO Lock-up 자동 해제 로직 탑재.
+        * **논블로킹 UI:** 스레드 병목 없이 0.5초 주기로 터미널에 실시간 수집 속도(MB/s) 및 트리거 레이트(Hz) 출력.
+* **[Core 2] Production (`production_500_mini`) : 구현 완료**
+    * 수집된 `.dat` 바이너리 파일을 읽어 12-bit 인터리브 마스킹을 해제.
+    * C++ ROOT 객체를 활용하여 고속으로 물리량(전하량, 피크 등)을 추출하고, 입자물리 정석 규격인 플랫 트리(Flat Tree) 구조의 `*.root` 파일로 변환.
+    * FADC400 스타일의 `-w` 옵션을 지원하여 베이스라인이 차감된 무손실 파형 벡터를 TGraph 형태로 저장 가능.
+* **[Core 3] Visualization (`online_monitor`) : 개발 진행 중 (Phase 4)**
+    * **수집 중인 파형을 실시간으로 추적(`tail -f` 방식)하여 확인하는 라이브 온라인 모니터링(Live Online Monitoring)** 기능.
+* **[Expansion] PyQt GUI Control Panel : 개발 예정**
+    * CLI 기반의 설정 및 구동을 마우스 클릭으로 제어할 수 있는 종합 그래픽 유저 인터페이스.
 
------
+---
 
 ## 🚀 2. 필수 의존성 및 권한 설정 (Prerequisites)
 
 ### 2.1 패키지 요구사항
 
-  * **CERN ROOT 6** (환경변수 `thisroot.sh` 로드 필요)
-  * **CMake 3.16+**, **GCC 지원 C++17 컴파일러**
-  * `libusb-1.0` 라이브러리 (RHEL/Fedora: `libusb1-devel`, Ubuntu: `libusb-1.0-0-dev`)
+* **CERN ROOT 6** (환경변수 `thisroot.sh` 로드 필요)
+* **CMake 3.16+**, **GCC 지원 C++17 컴파일러**
+* `libusb-1.0` 라이브러리 (RHEL/Fedora: `libusb1-devel`, Ubuntu: `libusb-1.0-0-dev`)
 
 ### 2.2 USB 장치 권한 등록 (udev rules)
 
@@ -47,7 +54,7 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
------
+---
 
 ## 🛠️ 3. 설치 및 빌드 가이드 (Build & Installation)
 
@@ -96,13 +103,30 @@ make -j4
 
 빌드가 성공하면 `bin/` 디렉토리에 실행 파일들이 생성됩니다.
 
------
+---
 
 ## 🏃 4. 시스템 구동 매뉴얼 (Usage)
 
-### 4.1 데이터 수집 가동 (Frontend)
+### 4.1 하드웨어 설정 파일 (`config/settings.cfg`) 구성
 
-`config/settings.cfg` 파일에 원하는 하드웨어 파라미터(채널별 Threshold, DAC Offset, Trigger Mode 등)를 설정하고 수집기를 가동합니다.
+데이터 수집 전, `config/settings.cfg` 파일을 열어 하드웨어 파라미터를 물리적 환경에 맞게 조율합니다.
+*(하나의 값을 적으면 4개 채널 전체에 일괄 적용되며, 4개의 값을 띄어쓰기로 적으면 Ch0 ~ Ch3에 각각 독립적으로 적용됩니다.)*
+
+**[글로벌 및 트리거 설정]**
+* `BOARD`: 장비에 할당된 VME/USB 고유 Serial ID (기본값: 1)
+* `SAMPLING_RATE`: 샘플링 주파수 (1: 500MS/s, 2: 250MS/s, 4: 125MS/s)
+* `RECORD_LEN`: 파형 저장 길이. 1 단위가 128ns를 의미하므로, `8` 입력 시 1μs 기록.
+* `TRIG_TLT`: 다중 채널 트리거 로직(Trigger Lookup Table). (예: `65534`(0xFFFE) = 4채널 중 아무거나 들어오면 트리거 하는 OR 로직)
+
+**[채널 개별 설정]**
+* `DACOFF`: ADC DC 베이스라인 오프셋 (0 ~ 4095). PMT와 같은 Negative 펄스 관측 시, 파형이 아래로 뻗을 수 있도록 공간을 확보하기 위해 주로 높은 값(`3400`)을 부여합니다.
+* `POL`: 신호 극성 (0: Negative, 1: Positive)
+* `THR`: 펄스 트리거 문턱값 (Threshold). 베이스라인 노이즈보다는 높게 설정해야 합니다. (1 ~ 4095)
+* `DLY`: 트리거 시점을 기준으로 파형을 늦추어 저장할 시간(ns). 펄스의 상승(Rising Edge) 전 페데스탈(Pedestal) 영역을 함께 수집하기 위해 적절한 지연값을 줍니다.
+
+### 4.2 데이터 수집 가동 (Frontend)
+
+설정이 완료되었다면 아래 명령어로 초고속 덤프 수집기를 가동합니다.
 
 ```bash
 # 프로젝트 루트 디렉토리 기준
@@ -110,26 +134,35 @@ make -j4
 ```
 
 **[프론트엔드 실행 옵션]**
-
-  * `-f <file>` : 사용할 설정 파일 경로 (기본값: `../config/settings.cfg`)
-  * `-o <file>` : 저장될 바이너리 데이터 파일명 (기본값: `run_XXXX.dat`)
-  * `-n <개수>` : 목표 이벤트 수. 해당 개수에 도달하면 자동으로 안전 종료됩니다.
-  * `-t <초>` : 시간 제한. 지정된 초(Seconds)가 지나면 자동으로 안전 종료됩니다.
+* `-f <file>` : 사용할 설정 파일 경로 (기본값: `../config/settings.cfg`)
+* `-o <file>` : 저장될 바이너리 데이터 파일명 (기본값: `run_XXXX.dat`)
+* `-n <개수>` : 목표 이벤트 수. 해당 개수에 도달하면 자동으로 안전 종료됩니다.
+* `-t <초>` : 시간 제한. 지정된 초(Seconds)가 지나면 자동으로 안전 종료됩니다.
 
 💡 **Graceful Shutdown:** 수집을 도중에 종료하려면 **`Ctrl + C`** 를 한 번만 입력하십시오. 진행 중이던 버퍼를 디스크에 모두 안전하게 내려쓴 뒤, Run Summary(요약 통계)를 출력하고 정상 종료됩니다.
 
-### 4.2 오프라인 변환 (Production) - *개발 진행 중*
+### 4.3 오프라인 변환 (Production)
+
+수집된 순수 바이너리(`.dat`) 데이터를 ROOT TTree 형태(`.root`)로 초고속 파싱합니다.
+터미널에서 변환 진행률과 ETA(예상 남은 시간)가 실시간으로 표시됩니다.
 
 ```bash
+# 1. 고속 물리량(Charge/Peak) 추출 모드 (저용량, 빠른 연산)
 ./bin/production_500_mini data/run_0001.dat
-```
 
------
+# 2. 무손실 전체 파형 보존 모드 (상세 분석용)
+./bin/production_500_mini data/run_0001.dat -w
+```
+* 변환이 완료되면 원본 파일 이름에 `_prod`가 붙은 `run_0001_prod.root` 파일이 생성됩니다.
+* `-w` 옵션을 부여하면 `wTime_ChX`, `wDrop_ChX` 등 ROOT TGraph로 쉽게 그릴 수 있는 Vector Branch가 트리에 추가로 기록됩니다.
+
+---
 
 ## 🗺️ 5. 개발 로드맵 (Roadmap)
 
-  - [x] **Phase 1:** 객체지향(OOP) 기반 코어 아키텍처 및 CMake 빌드 시스템 통합
-  - [x] **Phase 2:** 초고속 무결성 바이너리 수집기(Frontend) 구현 완료 (Fail-Safe, Real-time Dashboard 탑재)
-  - [ ] **Phase 3:** 바이너리 데이터 ROOT 객체 변환기(Production) 구현 진행 중
-  - [ ] **Phase 4:** TTree 물리량 분석 및 온라인 파형 뷰어(Online Monitoring & Visualization) 구현
-  - [ ] **Phase 5:** 사용자 친화적 PyQt GUI 통합 애플리케이션 개발
+- [x] **Phase 1:** 객체지향(OOP) 기반 코어 아키텍처 및 CMake 빌드 시스템 통합
+- [x] **Phase 2:** 초고속 무결성 바이너리 수집기(Frontend) 구현 완료 (Fail-Safe, Real-time Dashboard 탑재)
+- [x] **Phase 3:** 순수 플랫 트리(Pure Flat Tree) 구조의 오프라인 파서(Production) 구현 완료
+- [ ] **Phase 4:** TTree 물리량 분석 및 실시간 라이브 파형 뷰어(Online Monitoring) 구현 진행 중
+- [ ] **Phase 5:** 사용자 친화적 PyQt GUI 통합 애플리케이션 개발
+```
