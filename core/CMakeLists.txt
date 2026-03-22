@@ -31,4 +31,5 @@ target_link_libraries(FADC500Core
     ${NOTICE_LIB}/libNKUSBROOT.so        # <--- 대문자로 수정됨!
     ${NOTICE_LIB}/libusb3com.so
     ${NOTICE_LIB}/libusb3comroot.so
+    zmq
 )
