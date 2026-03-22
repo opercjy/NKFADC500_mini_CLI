@@ -1,0 +1,2 @@
+# Notice Korea NKFADC500 Mini USB 3.0 DAQ
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0547", ATTRS{idProduct}=="1502", MODE="0666"
