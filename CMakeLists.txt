@@ -34,6 +34,7 @@ link_directories(${NKHOME}/lib)
 
 # 3. 하위 모듈 빌드 트리
 add_subdirectory(objects)
-add_subdirectory(src)
+add_subdirectory(core)   # 새로 추가됨
+add_subdirectory(app)    # 새로 추가됨 (기존 src 대체)
 
 message(STATUS "✅ NKFADC500_mini CMake configuration completed successfully.")

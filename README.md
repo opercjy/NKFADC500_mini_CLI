@@ -1,3 +1,4 @@
+
 # NKFADC500\_mini\_CLI : NoticeDAQ Standalone Control
 
 Notice Korea의 FADC500 Mini (500MS/s, 12-bit, 4-Channel) 보드를 제어하고, 초고속으로 바이너리 데이터를 수집하여 ROOT 프레임워크 기반으로 분석하기 위한 **고성능 하이브리드 C++ DAQ 아키텍처**입니다.
@@ -20,7 +21,7 @@ Notice Korea의 FADC500 Mini (500MS/s, 12-bit, 4-Channel) 보드를 제어하고
   * **[Core 2] Production (`production_500_mini`) : 개발 진행 중**
       * 수집된 `.dat` 바이너리 파일을 읽어 12-bit 인터리브 마스킹을 해제.
       * C++ ROOT 객체(`RawData`, `RunInfo` 등)에 담아 최종적으로 압축된 `*.root` 파일로 변환 및 적분 전하량(Charge) 추출.
-  * **[Core 3] Visualization (`visualize_waveforms`) : 개발 예정**
+  * **[Core 3] Visualization (`online_monitor`) : 개발 예정**
       * 오프라인 ROOT 환경에서의 파형 렌더링뿐만 아니라, 향후 **수집 중인 파형을 실시간으로 확인하는 온라인 모니터링(Online Monitoring)** 기능으로 확장 예정.
   * **[Expansion] PyQt GUI Control Panel : 개발 예정**
       * CLI 기반의 설정 및 구동을 마우스 클릭으로 제어할 수 있는 종합 그래픽 유저 인터페이스.
