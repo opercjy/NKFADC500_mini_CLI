@@ -10,19 +10,29 @@ public:
     RawData();
     virtual ~RawData();
 
-    // 내부 채널 메모리 풀 초기화
     void Clear(Option_t* opt = ""); 
 
-    // 새로운 채널 메모리를 할당하는 대신 풀(Pool)에서 꺼내오는 고속 함수
     RawChannel* AddChannel(int chId);
-    
     RawChannel* GetChannel(int index) const;
     int GetNChannels() const;
 
-private:
-    TClonesArray* fChannels; //-> 메모리 파편화를 막아주는 ROOT의 핵심 객체 풀
+    // 이벤트 메타데이터 
+    void SetEventID(unsigned int id) { fEventID = id; }
+    unsigned int GetEventID() const { return fEventID; }
 
-    ClassDef(RawData, 1)
+    void SetTriggerTime(unsigned long t) { fTriggerTime = t; }
+    unsigned long GetTriggerTime() const { return fTriggerTime; }
+
+    void SetRunNumber(int r) { fRunNumber = r; }
+    int GetRunNumber() const { return fRunNumber; }
+
+private:
+    unsigned int fEventID;
+    unsigned long fTriggerTime;
+    int fRunNumber;
+    TClonesArray* fChannels; //->
+
+    ClassDef(RawData, 2) // 버전 2로 업데이트
 };
 
 #endif

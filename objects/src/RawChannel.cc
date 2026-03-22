@@ -2,17 +2,25 @@
 
 ClassImp(RawChannel)
 
-RawChannel::RawChannel() : fChId(-1) {
-    // [최적화] CPU 캐시 미스 방지 및 std::vector 재할당 오버헤드 제거를 위해 
-    // FADC500의 최대 레코드 길이(예: 4096)만큼 메모리 공간을 미리 확보해 둡니다.
-    fSamples.reserve(4096); 
+RawChannel::RawChannel() : fChId(-1), fCharge(0.0), fPeak(0) {
+    fSamples.reserve(2048); // 메모리 파편화 방지용 사전 할당
 }
 
-RawChannel::~RawChannel() {
-}
+RawChannel::~RawChannel() {}
 
-void RawChannel::Clear(Option_t* /*opt*/) {
+void RawChannel::Clear(Option_t* opt) {
     fChId = -1;
-    // clear()는 내부 메모리 용량(Capacity)은 유지한 채 크기(Size)만 0으로 만드므로 매우 빠릅니다.
-    fSamples.clear(); 
+    fSamples.clear();
+    fCharge = 0.0;
+    fPeak = 0;
+}
+
+void RawChannel::ComputeMetrics() {
+    fCharge = 0.0;
+    fPeak = 0;
+    // 파형 데이터를 순회하며 전하량(단순 면적 적분)과 피크값 탐색
+    for(auto val : fSamples) {
+        fCharge += val;
+        if(val > fPeak) fPeak = val;
+    }
 }

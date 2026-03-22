@@ -9,7 +9,12 @@ extern "C" {
 
 Fadc500Device::Fadc500Device(int sid) : fSid(sid) {
     USB3Init(0);
-    NKFADC500open(fSid, 0); 
+    
+    // 💡 [복구된 버그 픽스] 장비 오픈을 시도하고, 실패하면 무한루프에 빠지기 전에 즉시 프로그램 종료!
+    int status = NKFADC500open(fSid, 0); 
+    if (status < 0) {
+        ELog::Print(ELog::FATAL, Form("Cannot open FADC500 Mini (MID: %d). Please check power and USB connection!", fSid));
+    }
 }
 
 Fadc500Device::~Fadc500Device() {
@@ -64,9 +69,7 @@ void Fadc500Device::Initialize(FadcBD* bdConfig) {
     NKFADC500write_PSCALE(fSid, bdConfig->GetPRESCALE());
     NKFADC500write_TRIGENABLE(fSid, bdConfig->GetTRIGEN());
 
-    // 💡 [핵심 버그픽스] 500개 버퍼 제한 해제 로직
-    // 1. 트리거 락킹을 풀어서 데이터가 넘어가면 바로 다음 트리거를 받게 함
-    // 2. Continuous Read 모드 활성화 여부 확인 (기본적으로 start가 해결하지만, 확실히 리셋)
+    // 💡 [유지됨] 500개 버퍼 제한 해제 로직
     NKFADC500reset(fSid);
 
     ELog::Print(ELog::INFO, "Hardware initialization complete.");
@@ -90,8 +93,7 @@ void Fadc500Device::ReadDATA(unsigned int bcount_kb, unsigned char* dest) {
     if (bcount_kb > 0) {
         NKFADC500read_DATA(fSid, bcount_kb, (char*)dest);
         
-        // 💡 [핵심] 보드에게 "내가 데이터 1뭉치 잘 가져갔어. 다음꺼 또 모아서 줘!" 라고 알려줌
-        // 이렇게 해야 보드 안의 FIFO가 초기화되어 다음 500개를 또 토해냅니다.
+        // 💡 [유지됨] 보드에게 "내가 데이터 1뭉치 잘 가져갔어. 다음꺼 또 모아서 줘!" 라고 알려줌
         NKFADC500reset(fSid); 
         NKFADC500start(fSid); 
     }
