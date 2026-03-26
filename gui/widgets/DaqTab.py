@@ -19,6 +19,7 @@ class DaqTab(QWidget):
         self.start_time = None
         self.auto_mode = "NONE"
         self.scan_queue = []
+        self.current_out_file = "" # 💡 [추가] 모니터링 추적용 파일 변수
         
         self.db = DatabaseManager()
         self.last_stats = {'events': 0, 'size': 0.0, 'rate': 0.0}
@@ -114,13 +115,11 @@ class DaqTab(QWidget):
     def is_running(self):
         return self.daq_manager.process.state() == QProcess.Running
 
-    # 💡 [UX 신규 패치] 주석을 제거하고 깔끔한 2열 표(Table) 형태의 HTML로 요약 생성
     def get_config_summary(self, cfg_path):
         params = {}
         try:
             with open(cfg_path, 'r') as f:
                 for line in f:
-                    # 인라인 주석 제거 및 공백 정리
                     clean_line = line.split('#')[0].strip()
                     if not clean_line: continue
                     parts = clean_line.split()
@@ -133,7 +132,6 @@ class DaqTab(QWidget):
 
         if not params: return "No valid parameters found."
 
-        # HTML Table 구조로 직관적인 확장 바 구현
         html = f"""
         <table style='width:100%; font-size:12px; color:#424242;'>
             <tr>
@@ -164,17 +162,22 @@ class DaqTab(QWidget):
         run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
         self.sig_mode.emit(f"RUN [{run_str}]")
         
-        # 💡 요약 시그널 전송 (HTML 포맷)
         cfg_summary = self.get_config_summary(self.combo_cfg.currentData())
         self.sig_config.emit(cfg_summary)
         
-        out_file = os.path.join(self.data_dir, f"run_{run_str}.dat")
-        args = ["-f", self.combo_cfg.currentData(), "-o", out_file]
+        self.current_out_file = os.path.join(self.data_dir, f"run_{run_str}.dat") # 💡 추적 파일 저장
+        args = ["-f", self.combo_cfg.currentData(), "-o", self.current_out_file]
         if self.rb_evt.isChecked(): args.extend(["-n", str(self.spin_val.value())])
         elif self.rb_time.isChecked(): args.extend(["-t", str(self.spin_val.value())])
         
         bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/frontend_500_mini"))
         self.daq_manager.start_process(bin_path, args)
+        
+        # 💡 [자동 스위칭 패치] 모니터 뷰어가 켜져 있으면, 새로운 파일 대상으로 리프레시
+        if self.mon_process.state() == QProcess.Running:
+            self.stop_monitor()
+            self.mon_process.waitForFinished(500)
+            self.start_monitor()
 
     def start_scan(self):
         self.auto_mode = "SCAN"; self.start_time = datetime.now()
@@ -193,14 +196,19 @@ class DaqTab(QWidget):
         self.last_stats = {'events': 0, 'size': 0.0, 'rate': 0.0}
         self.sig_mode.emit(f"SCAN [THR={curr_thr}]")
         
-        # 💡 스캔용 요약 시그널 전송 (HTML 포맷)
         cfg_summary = self.get_config_summary(self.combo_cfg.currentData())
         scan_html = f"<div style='color:#D32F2F; font-weight:bold; margin-bottom:5px;'>Scan Target THR: {curr_thr}</div>{cfg_summary}"
         self.sig_config.emit(scan_html)
         
-        out_file = os.path.join(self.data_dir, f"run_scan_thr{curr_thr}.dat")
+        self.current_out_file = os.path.join(self.data_dir, f"run_scan_thr{curr_thr}.dat") # 💡 추적 파일 저장
         bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/frontend_500_mini"))
-        self.daq_manager.start_process(bin_path, ["-f", self.combo_cfg.currentData(), "-o", out_file, "-t", str(self.sp_scan_time.value())])
+        self.daq_manager.start_process(bin_path, ["-f", self.combo_cfg.currentData(), "-o", self.current_out_file, "-t", str(self.sp_scan_time.value())])
+
+        # 💡 [자동 스위칭 패치] 스캔 단계가 넘어갈 때마다 뷰어 리프레시
+        if self.mon_process.state() == QProcess.Running:
+            self.stop_monitor()
+            self.mon_process.waitForFinished(500)
+            self.start_monitor()
 
     def handle_process_state(self, is_running):
         self.sub_tabs.setEnabled(not is_running)
@@ -249,11 +257,22 @@ class DaqTab(QWidget):
     def start_monitor(self):
         if self.mon_process.state() != QProcess.Running:
             mon_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/online_monitor"))
-            run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
-            self.mon_process.start(mon_path, [os.path.join(self.data_dir, f"run_{run_str}.dat")])
+            
+            # 진행 중인 파일이 지정되어 있지 않다면 기본 이름 설정
+            if not self.current_out_file or not self.is_running():
+                run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
+                self.current_out_file = os.path.join(self.data_dir, f"run_{run_str}.dat")
+                
+            self.mon_process.start(mon_path, [self.current_out_file])
             self.sig_log.emit("<span style='color:#0288D1; font-weight:bold;'>[MONITOR] Live Viewer Started.</span>", False)
 
     def stop_monitor(self):
         if self.mon_process.state() == QProcess.Running: 
             self.mon_process.terminate()
             self.sig_log.emit("<span style='color:#8E24AA; font-weight:bold;'>[MONITOR] Live Viewer Stopped.</span>", False)
+            
+    # 💡 [기능 추가] 모니터 뷰어에 'c' (clear) 명령어를 비동기로 전달
+    def clear_monitor(self):
+        if self.mon_process.state() == QProcess.Running:
+            self.mon_process.write(b"c\n")
+            self.sig_log.emit("<span style='color:#00BCD4; font-weight:bold;'>[MONITOR] Histograms cleared by user command.</span>", False)

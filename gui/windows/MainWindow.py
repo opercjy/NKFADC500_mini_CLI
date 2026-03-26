@@ -79,15 +79,22 @@ class MainWindow(QMainWindow):
 
         master_group = QGroupBox("Master Controls")
         master_layout = QHBoxLayout()
+        
         self.btn_mon_start = QPushButton("👁️ Live Monitor ON")
         self.btn_mon_stop = QPushButton("🙈 Live Monitor OFF")
+        self.btn_mon_clear = QPushButton("🔄 Clear Monitor") # 💡 [추가] 모니터 리셋 버튼
         self.btn_abort = QPushButton("🛑 ABORT ALL")
+        
         self.btn_mon_start.setStyleSheet("background-color: #2196F3; color: white; padding: 10px; font-weight: bold;")
         self.btn_mon_stop.setStyleSheet("background-color: #9E9E9E; color: white; padding: 10px; font-weight: bold;")
+        self.btn_mon_clear.setStyleSheet("background-color: #00BCD4; color: white; padding: 10px; font-weight: bold;") # 💡 [추가] 스타일 적용
         self.btn_abort.setStyleSheet("background-color: #F44336; color: white; padding: 10px; font-weight: bold;")
+        
         master_layout.addWidget(self.btn_mon_start)
         master_layout.addWidget(self.btn_mon_stop)
+        master_layout.addWidget(self.btn_mon_clear) # 💡 [추가] 레이아웃에 배치
         master_layout.addWidget(self.btn_abort)
+        
         master_group.setLayout(master_layout)
         left_layout.addWidget(master_group)
 
@@ -103,7 +110,6 @@ class MainWindow(QMainWindow):
         self.lbl_mode.setFont(QFont("Arial", 14, QFont.Bold)); self.lbl_mode.setStyleSheet("color: #FF9800;")
         d_layout.addWidget(self.lbl_mode)
         
-        # 💡 [UX 신규 패치] 현재 구동 중인 Config 요약창 추가
         cfg_group = QGroupBox("Current Run & Config")
         cfg_group.setStyleSheet("QGroupBox { border: 1px solid #B0BEC5; margin-top: 10px; background-color: #F3E5F5;} QGroupBox::title { color: #6A1B9A; font-size: 11px;}")
         cfg_layout = QVBoxLayout()
@@ -171,12 +177,13 @@ class MainWindow(QMainWindow):
         self.daq_tab.sig_log.connect(self.append_log)
         self.daq_tab.sig_stat.connect(self.update_dashboard)
         self.daq_tab.sig_mode.connect(self.set_daq_mode)
-        self.daq_tab.sig_config.connect(self.update_config_summary) # 💡 Config 요약 시그널 연결
+        self.daq_tab.sig_config.connect(self.update_config_summary) 
         self.prod_tab.sig_log.connect(self.append_log)
         self.hv_tab.sig_log.connect(self.append_log)
 
         self.btn_mon_start.clicked.connect(self.daq_tab.start_monitor)
         self.btn_mon_stop.clicked.connect(self.daq_tab.stop_monitor)
+        self.btn_mon_clear.clicked.connect(self.daq_tab.clear_monitor) # 💡 [추가] 클리어 시그널 연결
         self.btn_abort.clicked.connect(self.force_abort_all)
 
     def update_clock(self):
@@ -195,7 +202,6 @@ class MainWindow(QMainWindow):
         if 'rate' in stats: self.lbl_rate.setText(f"Rate: {stats['rate']} Hz")
         if 'size' in stats: self.lbl_size.setText(f"File Size: {stats['size']} MB")
         if 'speed' in stats: self.lbl_speed.setText(f"Speed: {stats['speed']} MB/s")
-        # 💡 [버그 픽스] dataq와 pool을 분리하여 업데이트 (에러 방지)
         if 'dataq' in stats: self.lbl_dataq.setText(f"DataQ: {stats['dataq']}")
         if 'pool' in stats: self.lbl_pool.setText(f"Pool: {stats['pool']}")
 
