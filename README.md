@@ -1,9 +1,3 @@
-최지영 박사님, 지시하신 대로 기존 README의 진중한 톤과 감사의 글을 그대로 보존하면서, 우리가 극한의 환경에서 적용한 **핵심 하드웨어 동기화 및 렌더링 최적화(Phase 5.5)** 패치 내용을 자연스럽게 스며들도록 재작성했습니다.
-
-모든 이모지를 제거하여 학술적이고 진중한 프레임워크 문서의 품격을 갖추도록 다듬었습니다.
-
------
-
 # NKFADC500\_mini\_CLI : NoticeDAQ Standalone Control
 
 [Notice Hardware Maintenance & Development Declaration]
