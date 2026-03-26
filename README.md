@@ -1,3 +1,4 @@
+
 # NKFADC500\_mini\_CLI : NoticeDAQ Standalone Control
 
 [Notice Hardware Maintenance & Development Declaration]
@@ -138,7 +139,29 @@ make -j4
   * [x] **Phase 5.5:** 고대역폭 수신/렌더링 분리 아키텍처 및 GUI 동기화 시스템 구축
   * [ ] **Phase 6 (진행 중):** CAEN HV(고전압) 전원장치 소프트웨어 연동 제어 및 채널 마스킹(소프트웨어 리패킹 엔진)을 통한 데이터 획득(DAQ) 극한 성능 최적화
 
-## 6\. 감사의 글 (Acknowledgements)
+
+## 6. 교육용 오프라인 분석 파이프라인 (Educational Analysis & Cut-based Filtering)
+
+수집된 `*.root` 데이터는 순수 플랫 트리(Pure Flat Tree) 구조로 설계되어 있어, 입자물리 데이터 분석을 처음 접하는 학생이나 후배 연구원들이 **물리적 직관을 C++ 코드로 구현하는 방법**을 학습하기에 최적화되어 있습니다.
+
+본 프레임워크는 데이터 변환뿐만 아니라, 노이즈를 발라내고 순수 물리 신호만 추출하는 **교육용 마스터 분석 매크로 (`offline_anal_edu.cpp`)**를 제공합니다.
+
+### 핵심 분석 기법 (Physics Cut)
+1. **진폭 컷 (Amplitude Cut):** 베이스라인 요동이나 전자회로의 미세한 스파크 노이즈를 걸러내고, 유의미한 펄스 높이를 가진 진짜 신호만 선택합니다.
+2. **타임스탬프 컷 (TriggerTime & $\Delta t$ Cut):** 하드웨어 클럭(TriggerTime)을 이용해 현재 이벤트와 직전 이벤트의 시간 차이($\Delta t$)를 계산합니다. 
+   - $\Delta t < 10 \mu s$ 와 같이 너무 짧은 시간에 연달아 들어오는 신호는 PMT 내부의 **가짜 후속 펄스(Afterpulse)**일 확률이 높으므로 이를 수학적으로 도려낼 수 있습니다.
+   - $\Delta t$ 분포를 피팅(Fitting)하여 우주선 뮤온(Muon)의 붕괴 시간($\sim 2.2 \mu s$)이나 시스템 불감시간(Dead-time)을 직접 측정할 수 있습니다.
+
+### 교육용 튜토리얼 실행 방법
+분석 환경(ROOT)이 로드된 상태에서 아래 명령어를 터미널에 입력하십시오.
+
+```bash
+# 기본 실행 문법: root -l 'offline_anal_edu.cpp("파일명", 분석채널, Amp컷_기준값, DeltaT컷_기준값)'
+# 예시: 101번 Run 파일의 0번 채널을 열고, 진폭 150.0 미만의 노이즈를 컷(Cut)하며 분석
+root -l 'offline_anal_edu.cpp("data/run_101_prod.root", 0, 150.0, 10.0)'
+```
+
+## 7\. 감사의 글 (Acknowledgements)
 
 본 DAQ 시스템이 완성되기까지 보이지 않는 곳에서 헌신해 주신 많은 분들과 인프라에 깊은 감사를 표합니다.
 
