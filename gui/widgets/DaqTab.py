@@ -1,11 +1,13 @@
 import os
+import glob
 from datetime import datetime
 from core.DatabaseManager import DatabaseManager
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QGroupBox, QLineEdit, QComboBox, QSpinBox, 
-                             QRadioButton, QButtonGroup, QTabWidget, QFormLayout)
+                             QGridLayout)
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QProcess
 from core.ProcessManager import ProcessManager
+from widgets.path_controller import PathControllerWidget  
 
 class DaqTab(QWidget):
     sig_log = pyqtSignal(str, bool)
@@ -13,13 +15,13 @@ class DaqTab(QWidget):
     sig_mode = pyqtSignal(str)
     sig_config = pyqtSignal(str) 
 
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, config_dir):
         super().__init__()
         self.data_dir = data_dir
+        self.config_dir = config_dir
         self.start_time = None
         self.auto_mode = "NONE"
-        self.scan_queue = []
-        self.current_out_file = "" # 💡 [추가] 모니터링 추적용 파일 변수
+        self.current_out_file = ""
         
         self.db = DatabaseManager()
         self.last_stats = {'events': 0, 'size': 0.0, 'rate': 0.0}
@@ -32,88 +34,176 @@ class DaqTab(QWidget):
         
         self.initUI()
         self.connectSignals()
+        
+        next_run = self.db.get_latest_run_number()
+        self.input_run.setText(next_run)
+        QTimer.singleShot(200, self.refresh_config_list)
 
     def initUI(self):
         layout = QVBoxLayout(self)
+
+        path_layout = QHBoxLayout()
+        self.path_data = PathControllerWidget("📁 Data Output Path:", self.data_dir)
+        self.path_config = PathControllerWidget("⚙️ Config Input Path:", self.config_dir)
+        path_layout.addWidget(self.path_data); path_layout.addWidget(self.path_config)
+        layout.addLayout(path_layout)
+
+        cfg_group = QGroupBox("Run & Config Settings")
+        cfg_layout = QGridLayout()
         
-        info_group = QGroupBox("Run Information & Meta Data")
-        info_layout = QHBoxLayout()
-        self.input_run = QLineEdit("101")
-        self.input_run.setFixedWidth(80)
-        self.combo_qual = QComboBox(); self.combo_qual.addItems(["🟢 GOOD", "🟡 CALIBRATION", "🔴 BAD"])
-        self.input_cmt = QLineEdit(); self.input_cmt.setPlaceholderText("샘플 특이사항, HV 인가값 등 기록...")
-        self.combo_cfg = QComboBox(); self.combo_cfg.addItem("settings.cfg", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/settings.cfg")))
+        cfg_layout.addWidget(QLabel("Run Number:"), 0, 0)
+        self.input_run = QLineEdit()
+        cfg_layout.addWidget(self.input_run, 0, 1)
+
+        cfg_layout.addWidget(QLabel("Hardware Config:"), 1, 0)
+        self.combo_cfg = QComboBox()
+        cfg_layout.addWidget(self.combo_cfg, 1, 1)
+
+        btn_refresh_cfg = QPushButton("🔄 Refresh Configs")
+        btn_refresh_cfg.clicked.connect(self.refresh_config_list)
+        cfg_layout.addWidget(btn_refresh_cfg, 1, 2)
         
-        info_layout.addWidget(QLabel("Run:")); info_layout.addWidget(self.input_run)
-        info_layout.addWidget(QLabel("Config:")); info_layout.addWidget(self.combo_cfg)
-        info_layout.addWidget(QLabel("Quality:")); info_layout.addWidget(self.combo_qual)
-        info_layout.addWidget(QLabel("Comment:")); info_layout.addWidget(self.input_cmt, stretch=1)
-        info_group.setLayout(info_layout); layout.addWidget(info_group)
+        cfg_layout.addWidget(QLabel("Data Quality:"), 2, 0)
+        self.combo_qual = QComboBox()
+        self.combo_qual.addItems(["🟢 GOOD", "🟡 TEST", "🔴 BAD", "⚪ CALIB"])
+        cfg_layout.addWidget(self.combo_qual, 2, 1)
 
-        self.sub_tabs = QTabWidget()
+        cfg_layout.addWidget(QLabel("Comments:"), 3, 0)
+        self.input_cmt = QLineEdit()
+        self.input_cmt.setPlaceholderText("Enter run description...")
+        cfg_layout.addWidget(self.input_cmt, 3, 1, 1, 2)
+
+        cfg_group.setLayout(cfg_layout); layout.addWidget(cfg_group)
+
+        control_layout = QHBoxLayout()
         
-        tab_manual = QWidget()
-        man_layout = QVBoxLayout(tab_manual)
-
-        cond_layout = QHBoxLayout()
-        cond_group = QGroupBox("Stop Condition (1개 파일 기준)")
-        c_lay = QHBoxLayout()
-        self.rb_cont = QRadioButton("Continuous"); self.rb_evt = QRadioButton("By Events"); self.rb_time = QRadioButton("By Time (s)")
-        self.rb_cont.setChecked(True)
-        self.spin_val = QSpinBox(); self.spin_val.setRange(1, 10000000); self.spin_val.setValue(10000); self.spin_val.setEnabled(False)
-        self.rb_cont.toggled.connect(lambda: self.spin_val.setEnabled(not self.rb_cont.isChecked()))
-        c_lay.addWidget(self.rb_cont); c_lay.addWidget(self.rb_evt); c_lay.addWidget(self.rb_time); c_lay.addWidget(self.spin_val)
-        cond_group.setLayout(c_lay); cond_layout.addWidget(cond_group, stretch=2)
-
-        sub_group = QGroupBox("Long-Term Sub-run")
-        s_lay = QHBoxLayout()
-        self.sp_sub_max = QSpinBox(); self.sp_sub_max.setRange(1, 9999); self.sp_sub_max.setValue(1)
-        self.sp_idle = QSpinBox(); self.sp_idle.setRange(0, 3600); self.sp_idle.setValue(5)
-        s_lay.addWidget(QLabel("Max Files:")); s_lay.addWidget(self.sp_sub_max)
-        s_lay.addWidget(QLabel("Idle(s):")); s_lay.addWidget(self.sp_idle)
-        sub_group.setLayout(s_lay); cond_layout.addWidget(sub_group, stretch=1)
-        man_layout.addLayout(cond_layout)
-
-        self.btn_start = QPushButton("▶ START MANUAL / LONG-TERM DAQ")
-        self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; padding: 15px; font-weight: bold; font-size: 14px;")
-        man_layout.addWidget(self.btn_start); man_layout.addStretch()
-
-        tab_scan = QWidget(); scan_layout = QVBoxLayout(tab_scan)
-        scan_row = QHBoxLayout()
-        self.sp_start = QSpinBox(); self.sp_start.setRange(10, 1000); self.sp_start.setValue(50)
-        self.sp_end = QSpinBox(); self.sp_end.setRange(10, 1000); self.sp_end.setValue(150)
-        self.sp_step = QSpinBox(); self.sp_step.setRange(1, 100); self.sp_step.setValue(10)
-        self.sp_scan_time = QSpinBox(); self.sp_scan_time.setRange(1, 3600); self.sp_scan_time.setValue(10)
-        self.sp_scan_idle = QSpinBox(); self.sp_scan_idle.setRange(0, 3600); self.sp_scan_idle.setValue(2)
+        std_group = QGroupBox("🕹️ Manual / Long-Term DAQ")
+        std_group.setStyleSheet("QGroupBox { border: 2px solid #4CAF50; border-radius: 6px; background-color: #F1F8E9;} QGroupBox::title { color: #2E7D32; }")
+        std_lay = QVBoxLayout()
         
-        scan_row.addWidget(QLabel("Start:")); scan_row.addWidget(self.sp_start)
-        scan_row.addWidget(QLabel("End:")); scan_row.addWidget(self.sp_end)
-        scan_row.addWidget(QLabel("Step:")); scan_row.addWidget(self.sp_step)
-        scan_row.addWidget(QLabel("Time(s):")); scan_row.addWidget(self.sp_scan_time)
-        scan_row.addWidget(QLabel("Idle(s):")); scan_row.addWidget(self.sp_scan_idle)
-        scan_layout.addLayout(scan_row)
+        mode_lay = QHBoxLayout()
+        mode_lay.addWidget(QLabel("Run Mode:"))
+        self.combo_run_mode = QComboBox()
+        self.combo_run_mode.addItems(["Continuous (무한 수집)", "Target Events (이벤트 종료)", "Target Time (시간 종료)", "Long-Term (다중 분할 런)"])
+        self.combo_run_mode.currentIndexChanged.connect(self.update_std_ui)
+        mode_lay.addWidget(self.combo_run_mode)
+        std_lay.addLayout(mode_lay)
+        
+        self.widget_val = QWidget()
+        val_lay = QHBoxLayout(self.widget_val); val_lay.setContentsMargins(0,0,0,0)
+        self.lbl_target = QLabel("Target Limit:")
+        self.spin_target = QSpinBox(); self.spin_target.setRange(1, 100000000); self.spin_target.setValue(10000)
+        val_lay.addWidget(self.lbl_target); val_lay.addWidget(self.spin_target)
+        std_lay.addWidget(self.widget_val)
+        
+        self.widget_sub = QWidget()
+        sub_lay = QHBoxLayout(self.widget_sub); sub_lay.setContentsMargins(0,0,0,0)
+        self.spin_sub_max = QSpinBox(); self.spin_sub_max.setRange(1, 9999); self.spin_sub_max.setValue(5)
+        self.spin_idle = QSpinBox(); self.spin_idle.setRange(0, 3600); self.spin_idle.setValue(5)
+        sub_lay.addWidget(QLabel("Total Chunks:")); sub_lay.addWidget(self.spin_sub_max)
+        sub_lay.addWidget(QLabel("Idle(s):")); sub_lay.addWidget(self.spin_idle)
+        std_lay.addWidget(self.widget_sub)
+        std_lay.addStretch()
+        
+        self.btn_start_man = QPushButton("▶ START MANUAL DAQ")
+        self.btn_start_man.setStyleSheet("background-color: #4CAF50; color: white; padding: 12px; font-weight:bold; font-size:14px;")
+        self.btn_stop_man = QPushButton("⏹ STOP MANUAL DAQ")
+        self.btn_stop_man.setStyleSheet("background-color: #F44336; color: white; padding: 12px; font-weight:bold; font-size:14px;")
+        self.btn_stop_man.setEnabled(False)
+        std_lay.addWidget(self.btn_start_man); std_lay.addWidget(self.btn_stop_man)
+        std_group.setLayout(std_lay)
+        control_layout.addWidget(std_group)
+        
+        scan_group = QGroupBox("🔄 Threshold (ADC) Auto Scan")
+        scan_group.setStyleSheet("QGroupBox { border: 2px solid #FF9800; border-radius: 6px; background-color: #FFF3E0;} QGroupBox::title { color: #E65100; }")
+        scan_lay = QVBoxLayout()
+        
+        scan_grid = QGridLayout()
+        self.sp_start = QSpinBox(); self.sp_start.setRange(1, 4000); self.sp_start.setValue(20)
+        self.sp_end = QSpinBox(); self.sp_end.setRange(1, 4000); self.sp_end.setValue(100)
+        self.sp_step = QSpinBox(); self.sp_step.setRange(1, 500); self.sp_step.setValue(10)
+        scan_grid.addWidget(QLabel("Start ADC:"), 0, 0); scan_grid.addWidget(self.sp_start, 0, 1)
+        scan_grid.addWidget(QLabel("End ADC:"), 0, 2); scan_grid.addWidget(self.sp_end, 0, 3)
+        scan_grid.addWidget(QLabel("Step ADC:"), 1, 0); scan_grid.addWidget(self.sp_step, 1, 1)
+        scan_lay.addLayout(scan_grid)
+        
+        scan_opt = QHBoxLayout()
+        self.combo_scan_mode = QComboBox()
+        self.combo_scan_mode.addItems(["Time (sec)", "Events"])
+        self.spin_scan_val = QSpinBox(); self.spin_scan_val.setRange(1, 10000000); self.spin_scan_val.setValue(10)
+        self.spin_scan_idle = QSpinBox(); self.spin_scan_idle.setRange(0, 3600); self.spin_scan_idle.setValue(3)
+        scan_opt.addWidget(self.combo_scan_mode); scan_opt.addWidget(self.spin_scan_val)
+        scan_opt.addWidget(QLabel("Idle(s):")); scan_opt.addWidget(self.spin_scan_idle)
+        scan_lay.addLayout(scan_opt)
+        
+        scan_lay.addStretch()
         
         self.btn_scan = QPushButton("🔄 START THRESHOLD SCAN")
-        self.btn_scan.setStyleSheet("background-color: #FF9800; color: white; padding: 15px; font-weight: bold; font-size: 14px;")
-        scan_layout.addWidget(self.btn_scan); scan_layout.addStretch()
+        self.btn_scan.setStyleSheet("background-color: #FF9800; color: white; padding: 12px; font-weight:bold; font-size:14px;")
+        scan_lay.addWidget(self.btn_scan)
+        scan_group.setLayout(scan_lay)
+        control_layout.addWidget(scan_group)
 
-        self.sub_tabs.addTab(tab_manual, "🕹️ Standard DAQ")
-        self.sub_tabs.addTab(tab_scan, "🔄 THR Scan")
-        layout.addWidget(self.sub_tabs)
+        layout.addLayout(control_layout)
+        self.update_std_ui() 
+        layout.addStretch()
+
+    def update_std_ui(self):
+        idx = self.combo_run_mode.currentIndex()
+        if idx == 0: 
+            self.widget_val.setVisible(False); self.widget_sub.setVisible(False)
+        elif idx == 1: 
+            self.widget_val.setVisible(True); self.widget_sub.setVisible(False)
+            self.lbl_target.setText("Target Events:")
+        elif idx == 2: 
+            self.widget_val.setVisible(True); self.widget_sub.setVisible(False)
+            self.lbl_target.setText("Target Time (sec):")
+        elif idx == 3: 
+            self.widget_val.setVisible(True); self.widget_sub.setVisible(True)
+            self.lbl_target.setText("Per Chunk Limit (sec/evt):")
+
+    def refresh_config_list(self):
+        self.combo_cfg.clear()
+        current_cfg_dir = self.path_config.get_path()
+        
+        if not os.path.exists(current_cfg_dir):
+            self.sig_log.emit(f"\033[1;31m[ERROR] Config 경로를 찾을 수 없습니다: {current_cfg_dir}\033[0m", True)
+            return
+            
+        cfg_files = []
+        for f in os.listdir(current_cfg_dir):
+            if f.lower().endswith('.config') or f.lower().endswith('.cfg'):
+                cfg_files.append(f)
+        
+        if not cfg_files:
+            self.sig_log.emit(f"\033[1;33m[WARNING] '{current_cfg_dir}' 내에 설정 파일(*.cfg)이 없습니다.\033[0m", False)
+            return
+            
+        for f in sorted(cfg_files):
+            self.combo_cfg.addItem(f, os.path.join(current_cfg_dir, f))
+            
+        self.sig_log.emit(f"\033[1;32m[SYSTEM] {len(cfg_files)}개의 하드웨어 설정 파일을 로드했습니다.\033[0m", False)
 
     def connectSignals(self):
-        self.btn_start.clicked.connect(self.start_manual)
+        self.btn_start_man.clicked.connect(lambda: self.start_manual(1))
+        self.btn_stop_man.clicked.connect(self.stop_daq)
         self.btn_scan.clicked.connect(self.start_scan)
-        self.daq_manager.log_signal.connect(lambda msg: self.sig_log.emit(msg, False))
-        self.daq_manager.stat_signal.connect(self.update_stats_and_emit)
+
+        self.daq_manager.log_signal.connect(lambda msg, is_err: self.sig_log.emit(msg, is_err))
+        self.daq_manager.stat_signal.connect(self.update_stats)
         self.daq_manager.state_signal.connect(self.handle_process_state)
 
-    def update_stats_and_emit(self, stats):
-        self.last_stats.update(stats)
-        self.sig_stat.emit(stats)
-
-    def is_running(self):
-        return self.daq_manager.process.state() == QProcess.Running
+    def generate_out_filename(self, subrun=0):
+        run_num = self.input_run.text().strip()
+        if not run_num: run_num = "999"
+        target_dir = self.path_data.get_path()
+        
+        if self.auto_mode == "MANUAL" and self.max_subruns > 1:
+            fname = f"run_{run_num}_{subrun:03d}.dat"
+        else:
+            fname = f"run_{run_num}.dat"
+            
+        return os.path.join(target_dir, fname)
 
     def get_config_summary(self, cfg_path):
         params = {}
@@ -154,41 +244,69 @@ class DaqTab(QWidget):
         return html
 
     def start_manual(self, subrun_idx=1):
-        self.auto_mode = "MANUAL"; self.current_subrun = subrun_idx
-        self.max_subruns = self.sp_sub_max.value()
+        cfg_file = self.combo_cfg.currentData()
+        if not cfg_file:
+            self.sig_log.emit("\033[1;31m[ERROR] 설정 파일을 찾을 수 없습니다!\033[0m", True)
+            return
+
+        self.auto_mode = "MANUAL"
+        idx = self.combo_run_mode.currentIndex()
+        if subrun_idx == 1:
+            self.max_subruns = self.spin_sub_max.value() if idx == 3 else 1
+            
+        self.current_subrun = subrun_idx
+        self.current_out_file = self.generate_out_filename(subrun_idx)
+        
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        bin_path = os.path.abspath(os.path.join(script_dir, "../../../bin/frontend_500_mini"))
+        
+        args = ["-f", cfg_file, "-o", self.current_out_file]
+        
+        if idx == 1: args.extend(["-n", str(self.spin_target.value())]) 
+        elif idx in [2, 3]: args.extend(["-t", str(self.spin_target.value())]) 
+            
+        self.btn_start_man.setEnabled(False); self.btn_scan.setEnabled(False)
+        self.btn_stop_man.setEnabled(True)
         self.start_time = datetime.now()
-        self.last_stats = {'events': 0, 'size': 0.0, 'rate': 0.0} 
         
         run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
         self.sig_mode.emit(f"RUN [{run_str}]")
         
-        cfg_summary = self.get_config_summary(self.combo_cfg.currentData())
+        cfg_summary = self.get_config_summary(cfg_file)
         self.sig_config.emit(cfg_summary)
-        
-        self.current_out_file = os.path.join(self.data_dir, f"run_{run_str}.dat") # 💡 추적 파일 저장
-        args = ["-f", self.combo_cfg.currentData(), "-o", self.current_out_file]
-        if self.rb_evt.isChecked(): args.extend(["-n", str(self.spin_val.value())])
-        elif self.rb_time.isChecked(): args.extend(["-t", str(self.spin_val.value())])
-        
-        bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/frontend_500_mini"))
+
+        # 💡 [히든 처리] 명령어 조합 로깅을 제거하고 짧은 안내 메시지로 교체
+        self.sig_log.emit("\033[1;36m[SYSTEM] Starting DAQ...\033[0m", False)
+
         self.daq_manager.start_process(bin_path, args)
-        
-        # 💡 [자동 스위칭 패치] 모니터 뷰어가 켜져 있으면, 새로운 파일 대상으로 리프레시
+
         if self.mon_process.state() == QProcess.Running:
             self.stop_monitor()
             self.mon_process.waitForFinished(500)
             self.start_monitor()
 
     def start_scan(self):
+        cfg_file = self.combo_cfg.currentData()
+        if not cfg_file:
+            self.sig_log.emit("\033[1;31m[ERROR] 설정 파일을 찾을 수 없습니다!\033[0m", True)
+            return
+
         self.auto_mode = "SCAN"; self.start_time = datetime.now()
         self.scan_queue = list(range(self.sp_start.value(), self.sp_end.value() + 1, self.sp_step.value()))
+        self.btn_start_man.setEnabled(False); self.btn_scan.setEnabled(False)
+        self.btn_stop_man.setEnabled(True)
         self.run_scan_step()
 
     def run_scan_step(self):
         if not self.scan_queue: 
             self.auto_mode = "NONE"; self.sig_mode.emit("IDLE")
-            self.sig_config.emit("Ready to start...")
-            self.sig_log.emit("<span style='color:#388E3C; font-weight:bold;'>[AUTO] All scan steps completed.</span>", False)
+            self.btn_start_man.setEnabled(True); self.btn_scan.setEnabled(True)
+            self.btn_stop_man.setEnabled(False)
+            self.sig_log.emit("\033[1;32m[AUTO] All scan steps completed.\033[0m", False)
+            
+            if self.input_run.text().isdigit():
+                next_run = str(int(self.input_run.text()) + 1)
+                self.input_run.setText(next_run)
             return
         
         curr_thr = self.scan_queue.pop(0)
@@ -200,18 +318,27 @@ class DaqTab(QWidget):
         scan_html = f"<div style='color:#D32F2F; font-weight:bold; margin-bottom:5px;'>Scan Target THR: {curr_thr}</div>{cfg_summary}"
         self.sig_config.emit(scan_html)
         
-        self.current_out_file = os.path.join(self.data_dir, f"run_scan_thr{curr_thr}.dat") # 💡 추적 파일 저장
-        bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/frontend_500_mini"))
-        self.daq_manager.start_process(bin_path, ["-f", self.combo_cfg.currentData(), "-o", self.current_out_file, "-t", str(self.sp_scan_time.value())])
+        self.current_out_file = os.path.join(self.path_data.get_path(), f"run_{self.input_run.text()}_thr{curr_thr}.dat") 
+        
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        bin_path = os.path.abspath(os.path.join(script_dir, "../../../bin/frontend_500_mini"))
+        
+        args = ["-f", self.combo_cfg.currentData(), "-o", self.current_out_file]
+        if self.combo_scan_mode.currentIndex() == 0: args.extend(["-t", str(self.spin_scan_val.value())]) 
+        else: args.extend(["-n", str(self.spin_scan_val.value())]) 
+        
+        # 💡 [히든 처리] 긴 명령어 제거, 직관적인 메시지로 교체
+        self.sig_log.emit(f"\033[1;36m[SYSTEM] Starting Scan Step (THR={curr_thr})...\033[0m", False)
+        
+        self.daq_manager.start_process(bin_path, args)
 
-        # 💡 [자동 스위칭 패치] 스캔 단계가 넘어갈 때마다 뷰어 리프레시
         if self.mon_process.state() == QProcess.Running:
             self.stop_monitor()
             self.mon_process.waitForFinished(500)
             self.start_monitor()
 
     def handle_process_state(self, is_running):
-        self.sub_tabs.setEnabled(not is_running)
+        self.combo_cfg.setEnabled(not is_running)
         self.input_run.setEnabled(not is_running)
         
         if not is_running and self.start_time is not None:
@@ -219,6 +346,9 @@ class DaqTab(QWidget):
             elapsed = (end_time - self.start_time).total_seconds()
             
             quality_text = self.combo_qual.currentText().split(" ")[1] 
+            cfg_file = self.combo_cfg.currentData()
+            cfg_name = os.path.basename(cfg_file) if cfg_file else "Unknown"
+            
             self.db.insert_frontend_summary(
                 run_num=int(self.input_run.text()) if self.input_run.text().isdigit() else 0,
                 subrun=self.current_subrun if self.auto_mode == "MANUAL" else 0,
@@ -230,49 +360,71 @@ class DaqTab(QWidget):
                 rate=float(self.last_stats.get('rate', 0.0)),
                 mode=self.auto_mode,
                 quality=quality_text,
-                comments=self.input_cmt.text()
+                comments=self.input_cmt.text(),
+                config_file=cfg_name
             )
-            self.sig_log.emit("<span style='color:#388E3C; font-weight:bold;'>[DB] Summary safely stored to Database.</span>", False)
+            self.sig_log.emit("\033[1;32m[DB] Summary safely stored to Database.\033[0m", False)
             self.start_time = None 
 
             if self.auto_mode == "MANUAL" and self.current_subrun < self.max_subruns:
-                idle = self.sp_idle.value()
+                idle = self.spin_idle.value()
                 self.sig_mode.emit(f"IDLE ({idle}s)")
-                self.sig_log.emit(f"<span style='color:#F57C00; font-weight:bold;'>[AUTO] Waiting {idle} seconds for next Sub-run...</span>", False)
                 QTimer.singleShot(idle * 1000, lambda: self.start_manual(self.current_subrun + 1))
             elif self.auto_mode == "SCAN":
-                idle = self.sp_scan_idle.value()
+                idle = self.spin_scan_idle.value()
                 self.sig_mode.emit(f"IDLE ({idle}s)")
                 QTimer.singleShot(idle * 1000, self.run_scan_step)
             else:
-                self.auto_mode = "NONE"; self.sig_mode.emit("IDLE")
-                self.sig_config.emit("Ready to start...")
+                self.auto_mode = "NONE"
+                self.sig_mode.emit("IDLE")
+                
+                if self.input_run.text().isdigit():
+                    next_run = str(int(self.input_run.text()) + 1)
+                    self.input_run.setText(next_run)
+                
+                self.btn_start_man.setEnabled(True); self.btn_scan.setEnabled(True)
+                self.btn_stop_man.setEnabled(False)
+
+    def update_stats(self, stat_dict):
+        self.last_stats.update(stat_dict)
+        self.sig_stat.emit(stat_dict)
+        if 'log' in stat_dict:
+            self.sig_log.emit(stat_dict['log'], stat_dict.get('is_error', False))
+
+    def stop_daq(self):
+        self.sig_log.emit("\033[1;33mSending Stop signal...\033[0m", False)
+        self.daq_manager.stop_process()
+        self.btn_start_man.setEnabled(True); self.btn_scan.setEnabled(True)
+        self.btn_stop_man.setEnabled(False)
 
     def force_abort(self):
-        self.auto_mode = "NONE"; self.scan_queue.clear(); self.max_subruns = 1
+        self.auto_mode = "NONE"
         self.daq_manager.stop_process()
-        self.sig_config.emit("Ready to start...")
-        if self.mon_process.state() == QProcess.Running: self.mon_process.terminate()
+        self.btn_start_man.setEnabled(True); self.btn_scan.setEnabled(True)
+        self.btn_stop_man.setEnabled(False)
 
     def start_monitor(self):
-        if self.mon_process.state() != QProcess.Running:
-            mon_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/online_monitor"))
+        if self.mon_process.state() == QProcess.Running: return
+        self.sig_log.emit("\033[1;36mStarting DQM Monitor...\033[0m", False)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        bin_path = os.path.abspath(os.path.join(script_dir, "../../../bin/online_monitor"))
+        
+        if not self.current_out_file:
+            run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
+            self.current_out_file = os.path.join(self.data_dir, f"run_{run_str}.dat")
             
-            # 진행 중인 파일이 지정되어 있지 않다면 기본 이름 설정
-            if not self.current_out_file or not self.is_running():
-                run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
-                self.current_out_file = os.path.join(self.data_dir, f"run_{run_str}.dat")
-                
-            self.mon_process.start(mon_path, [self.current_out_file])
-            self.sig_log.emit("<span style='color:#0288D1; font-weight:bold;'>[MONITOR] Live Viewer Started.</span>", False)
-
+        self.mon_process.start(bin_path, [self.current_out_file])
+        
     def stop_monitor(self):
-        if self.mon_process.state() == QProcess.Running: 
-            self.mon_process.terminate()
-            self.sig_log.emit("<span style='color:#8E24AA; font-weight:bold;'>[MONITOR] Live Viewer Stopped.</span>", False)
+        if self.mon_process.state() == QProcess.Running:
+            self.mon_process.kill()
+            self.mon_process.waitForFinished()
+            self.sig_log.emit("\033[1;35mDQM Monitor stopped.\033[0m", False)
             
-    # 💡 [기능 추가] 모니터 뷰어에 'c' (clear) 명령어를 비동기로 전달
     def clear_monitor(self):
         if self.mon_process.state() == QProcess.Running:
             self.mon_process.write(b"c\n")
-            self.sig_log.emit("<span style='color:#00BCD4; font-weight:bold;'>[MONITOR] Histograms cleared by user command.</span>", False)
+            self.sig_log.emit("\033[1;36m[MONITOR] Histograms cleared by user command.\033[0m", False)
+
+    def is_running(self):
+        return self.start_time is not None

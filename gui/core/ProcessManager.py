@@ -19,24 +19,24 @@ class ProcessManager(QObject):
 
     def start_process(self, executable_path, arguments=[]):
         if self.process.state() == QProcess.NotRunning:
-            self.log_signal.emit(f"<span style='color: #2E7D32;'><b>[GUI] Starting engine:</b> {executable_path} {' '.join(arguments)}</span><br>", False)
+            # 💡 [GUI 로그 히든 처리] 길고 지저분한 실행 명령어 대신 심플한 메시지 출력
+            self.log_signal.emit("<span style='color: #2E7D32;'><b>[GUI] Starting Data Acquisition Engine...</b></span>", False)
             self.process.start(executable_path, arguments)
 
     def stop_process(self):
         if self.process.state() == QProcess.Running:
-            self.log_signal.emit("<span style='color: #F57C00;'><b>[GUI] Sending interrupt signal (Ctrl+C)...</b></span><br>", False)
+            self.log_signal.emit("<span style='color: #F57C00;'><b>[GUI] Sending interrupt signal (Ctrl+C)...</b></span>", False)
             try:
                 os.kill(self.process.processId(), signal.SIGINT)
             except Exception:
                 pass
             
-            # 💡 [핵심 패치] 1.5초 뒤에도 무한루프에 빠져 안 죽으면, 강제 킬(SIGKILL) 발동!
             QTimer.singleShot(1500, self.force_kill)
 
     def force_kill(self):
         if self.process.state() == QProcess.Running:
-            self.log_signal.emit("<span style='color: #D32F2F; font-weight: bold;'>[GUI] Hardware deadlock detected. FORCING KILL!</span><br>", True)
-            self.process.kill() # 자비 없는 강제 종료
+            self.log_signal.emit("<span style='color: #D32F2F; font-weight: bold;'>[GUI] Hardware deadlock detected. FORCING KILL!</span>", True)
+            self.process.kill() 
 
     def write_stdin(self, text):
         if self.process.state() == QProcess.Running:
@@ -53,6 +53,17 @@ class ProcessManager(QObject):
                 clean_line = clean_line.replace('[F[K', '').replace('[K', '')
                 
                 if "Real-time Monitor" in clean_line: continue
+                
+                # ====================================================================
+                # 💡 [백엔드 로그 필터링] C++에서 올라오는 지저분한 경로를 가로채서 예쁘게 바꿈
+                # ====================================================================
+                if "Loading Configuration:" in clean_line:
+                    self.log_signal.emit("<span style='color: #388E3C;'>[INFO] Configuration file loaded successfully.</span>", False)
+                    continue  # 원본 로그는 무시
+                    
+                if "Configuration backed up to:" in clean_line:
+                    continue  # 백업 안내 로그는 아예 화면에 안 띄우고 숨김 처리
+                # ====================================================================
                 
                 if "Events:" in clean_line and "Rate:" in clean_line:
                     stats = {}
@@ -83,6 +94,7 @@ class ProcessManager(QObject):
                 if "Avg Speed     :" in clean_line:
                     self.stat_signal.emit({'final_speed': float(re.search(r'([0-9.]+)', clean_line).group(1))})
 
+                # 일반 로그는 ANSI 컬러를 HTML로 변환해서 출력
                 html_line = subline.replace('\033[1;36m', "<span style='color: #0288D1;'>")
                 html_line = html_line.replace('\033[1;32m', "<span style='color: #388E3C;'>")
                 html_line = html_line.replace('\033[1;33m', "<span style='color: #F57C00;'>")

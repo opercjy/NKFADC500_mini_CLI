@@ -1,4 +1,5 @@
 import os
+import shutil
 from datetime import datetime
 from core.DatabaseManager import DatabaseManager
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
@@ -6,16 +7,20 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QCheckBox, QInputDialog)
 from PyQt5.QtCore import pyqtSignal, Qt
 from core.ProcessManager import ProcessManager
+from widgets.path_controller import PathControllerWidget  # 💡 경로 객체 임포트
 
 class ProductionTab(QWidget):
     sig_log = pyqtSignal(str, bool)
 
-    def __init__(self, data_dir):
+    # 💡 [OOP 개선] MainWindow에서 전달받은 data_dir과 config_dir을 모두 받습니다.
+    def __init__(self, data_dir, config_dir):
         super().__init__()
         self.data_dir = data_dir
+        self.config_dir = config_dir
         self.db = DatabaseManager()
         self.start_time = None
         self.final_stats = {'events': 0, 'speed': 0.0}
+        self.current_out_file = ""
         
         self.prod_manager = ProcessManager()
         self.prod_manager.stat_signal.connect(self.update_progress)
@@ -24,6 +29,10 @@ class ProductionTab(QWidget):
 
     def initUI(self):
         layout = QVBoxLayout(self)
+
+        # 💡 [경로 객체화] 변환된 데이터(ROOT 파일)가 저장될 경로를 지정하는 컨트롤러 부착
+        self.path_ctrl = PathControllerWidget("📁 Batch Output Path:", self.data_dir)
+        layout.addWidget(self.path_ctrl)
 
         file_group = QGroupBox("1. Select Raw Data File (.dat)")
         file_layout = QHBoxLayout()
@@ -72,6 +81,7 @@ class ProductionTab(QWidget):
         if not infile: return
         self.progress.setValue(0); self.start_time = datetime.now()
         self.final_stats = {'events': 0, 'speed': 0.0}
+        
         bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/production_500_mini"))
         args = [infile]
         if self.chk_wave.isChecked(): args.append("-w")
@@ -102,18 +112,38 @@ class ProductionTab(QWidget):
             self.progress.setValue(100)
             elapsed = (datetime.now() - self.start_time).total_seconds()
             
-            try: run_num = int(''.join(filter(str.isdigit, os.path.basename(self.input_file.text()))))
+            infile_path = self.input_file.text().strip()
+            in_filename = os.path.basename(infile_path)
+            
+            try: run_num = int(''.join(filter(str.isdigit, in_filename)))
             except: run_num = 0
+            
+            # 💡 [UX 개선] C++ 로직에 맞춰 원본 위치에 생성된 _prod.root를 찾아 UI에서 지정한 경로로 이동
+            orig_out_path = os.path.splitext(infile_path)[0] + "_prod.root"
+            target_dir = self.path_ctrl.get_path()
+            out_filename = os.path.basename(orig_out_path)
+            final_out_path = os.path.join(target_dir, out_filename)
+            
+            try:
+                if os.path.exists(orig_out_path) and orig_out_path != final_out_path:
+                    shutil.move(orig_out_path, final_out_path)
+            except Exception as e:
+                self.sig_log.emit(f"<span style='color:#EF5350; font-weight:bold;'>[ERROR] Failed to move output file: {e}</span>", True)
+                final_out_path = orig_out_path
                 
+            # 💡 [DB 스키마 확장 연동] Input 파일과 이동이 완료된 Output 파일의 이름을 DB에 기록
             self.db.insert_production_summary(
                 run_num=run_num,
                 elapsed=round(elapsed, 2),
                 events=self.final_stats.get('events', 0),
                 speed=self.final_stats.get('speed', 0.0),
-                mode="Waveform" if self.chk_wave.isChecked() else "Fast Physics"
+                mode="Waveform" if self.chk_wave.isChecked() else "Fast Physics",
+                in_file=in_filename,
+                out_file=out_filename
             )
-            # 💡 [버그픽스] ANSI 제거
-            self.sig_log.emit("<span style='color:#388E3C; font-weight:bold;'>[DB] Production Summary saved.</span>", False)
+            
+            # 💡 [버그 픽스] 눈이 편안한 초록색 계열의 로그(2E7D32)로 수정 완료
+            self.sig_log.emit(f"<span style='color:#2E7D32; font-weight:bold;'>[DB] Production Summary saved. Output: {out_filename}</span>", False)
             self.start_time = None
 
     def force_abort(self):

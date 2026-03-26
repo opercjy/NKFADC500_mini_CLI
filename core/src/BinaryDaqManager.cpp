@@ -1,10 +1,16 @@
-#include "BinaryDaqManager.hh"
+#include "BinaryDaqManager.hh" // 💡 누락되었던 클래스 정의 헤더 추가
+#include "Fadc500Device.hh"
 #include "ELog.hh"
-#include <chrono>
-#include <cstdio>
+
 #include <iostream>
 #include <iomanip>
+#include <chrono>
 #include <ctime>
+#include <thread>
+#include <string>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 
 BinaryDaqManager::BinaryDaqManager(RunInfo* runInfo) 
     : fRunInfo(runInfo), fDevice(nullptr), fIsRunning(false) 
@@ -15,7 +21,8 @@ BinaryDaqManager::BinaryDaqManager(RunInfo* runInfo)
     fDevice = new Fadc500Device(bdConfig->GetMID());
     fDevice->Initialize(bdConfig);
 
-    for (int i = 0; i < 10; i++) {
+    // 💡 [병목 픽스 1] 큐(Pool) 사이즈 10개(40MB) -> 64개(256MB)로 대폭 확장하여 버퍼링 Jitter 흡수
+    for (int i = 0; i < 64; i++) { 
         fFreeQueue.Push(new RawBuffer(4 * 1024 * 1024));
     }
 }
@@ -38,7 +45,6 @@ void BinaryDaqManager::Start(const std::string& outFileName, int maxEvents, int 
     std::cout << "\033[1;32m       NKFADC500 Mini Binary DAQ is RUNNING\033[0m\n";
     std::cout << "       [Start Time]  " << std::put_time(std::localtime(&start_time_t), "%Y-%m-%d %H:%M:%S") << "\n";
     std::cout << "       [Target File] " << outFileName << "\n";
-    // 💡 [UX 신규 패치] CLI 배너에도 핵심 파라미터 상세 출력
     std::cout << "       [Config (1)]  RL: " << bd->GetRL() << " | TLT: 0x" << std::hex << bd->GetTLT() << std::dec << " | CW: " << bd->GetCW(0) << "\n";
     std::cout << "       [Config (2)]  POL: " << bd->GetPOL(0) << " | DLY: " << bd->GetDLY(0) << " | DACOFF: " << bd->GetDACOFF(0) << "\n";
     std::cout << "       [Config (3)]  THR: " << bd->GetTHR(0) << "\n";
@@ -69,7 +75,8 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
             int elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time).count();
             if (elapsed >= maxTime) {
                 std::cout << "\n"; 
-                ELog::Print(ELog::INFO, Form("Time limit reached (%d sec). Stopping DAQ...", maxTime));
+                // 💡 ROOT의 Form 대신 순수 C++ 문자열 합치기 사용
+                ELog::Print(ELog::INFO, "Time limit reached (" + std::to_string(maxTime) + " sec). Stopping DAQ...");
                 fIsRunning = false;
                 break;
             }
@@ -93,8 +100,9 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
         
         uint32_t total_bytes_to_read = bcount_kb * 1024; 
 
-        if (fDataQueue.Size() > 8) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        // 💡 [병목 픽스 2] 큐 사이즈 백프레셔(Backpressure) 허용치 대폭 상향 (8 -> 50)
+        if (fDataQueue.Size() > 50) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
 
@@ -112,8 +120,6 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
         fDevice->ReadDATA(bcount_kb, buffer->data);
         buffer->size = total_bytes_to_read;
         fDataQueue.Push(buffer);
-        
-        std::this_thread::sleep_for(std::chrono::microseconds(50));
     }
     
     fDevice->StopDAQ();
@@ -124,10 +130,13 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
     FILE* fp = fopen(outFileName.c_str(), "wb");
     if (!fp) {
         std::cout << "\n";
-        ELog::Print(ELog::FATAL, Form("Cannot open file %s", outFileName.c_str()));
+        ELog::Print(ELog::FATAL, "Cannot open file " + outFileName);
         fIsRunning = false;
         return;
     }
+
+    // 💡 [병목 픽스 4] 디스크 I/O Jitter 방지를 위해 16MB C표준 커널 버퍼링 설정
+    setvbuf(fp, NULL, _IOFBF, 16 * 1024 * 1024);
 
     size_t total_written_bytes = 0;
     int current_events = 0;
@@ -151,7 +160,7 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
 
                 if (maxEvents > 0 && current_events >= maxEvents) {
                     std::cout << "\n\n"; 
-                    ELog::Print(ELog::INFO, Form("Target reached! (Est. %d events). Stopping DAQ...", current_events));
+                    ELog::Print(ELog::INFO, "Target reached! (Est. " + std::to_string(current_events) + " events). Stopping DAQ...");
                     fIsRunning = false; 
                 }
                 
@@ -159,7 +168,7 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
                 fFreeQueue.Push(popBuffer); 
             }
         } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
 
         auto current_time = std::chrono::steady_clock::now();
@@ -204,8 +213,8 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
     std::cout << "   End Time      : " << std::put_time(std::localtime(&end_c), "%Y-%m-%d %H:%M:%S") << "\n";
     std::cout << "   Elapsed Time  : " << std::fixed << std::setprecision(2) << total_sec << " sec\n";
     std::cout << "--------------------------------------------------------\n";
-    std::cout << Form("   Total Events  : %d\n", current_events);
-    std::cout << Form("   Total Written : %.2f MB\n", total_written_bytes / 1048576.0);
+    std::cout << "   Total Events  : " << current_events << "\n";
+    std::cout << "   Total Written : " << std::fixed << std::setprecision(2) << (total_written_bytes / 1048576.0) << " MB\n";
     std::cout << "   Avg Trig Rate : " << std::fixed << std::setprecision(2) << avg_rate << " Hz\n";
     std::cout << "\033[1;36m========================================================\033[0m\n";
 }
