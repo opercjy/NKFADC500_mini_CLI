@@ -197,6 +197,7 @@ root -l 'offline_compton_edge.cpp("data/run_0001_prod.root", 0, 2000.0)'
 <img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/1c4f2458-44b4-4d81-a955-bacb10501f02" />
 <img width="1620" height="1040" alt="image" src="https://github.com/user-attachments/assets/2fd31349-56b7-4d9b-9a19-f5a6300b1819" />
 <img width="1420" height="640" alt="image" src="https://github.com/user-attachments/assets/6302864c-0d4d-4d2d-9111-0757d465f2de" />
+<img width="1420" height="940" alt="image" src="https://github.com/user-attachments/assets/a9b391dc-5b15-4d8b-9183-6acb0cf3da12" />
 <img width="1020" height="740" alt="image" src="https://github.com/user-attachments/assets/b60cfbac-8913-41c8-bb8a-0bc9c070f654" />
 
 
