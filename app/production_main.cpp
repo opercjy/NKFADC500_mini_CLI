@@ -20,6 +20,7 @@
 #include "TSystem.h"
 #include "ELog.hh"
 
+// 비동기 키보드 입력 감지 (ROOT 캔버스 렌더링 안 멈추게 하기 위함)
 bool kbhit() {
     struct timeval tv = { 0L, 0L };
     fd_set fds;
@@ -212,7 +213,7 @@ int main(int argc, char** argv) {
     }
 
     // =================================================================================
-    // 💡 [버그 픽스] Interactive 모드 (-d) 위아래(Positive-going) 반전 렌더링 적용
+    // 💡 [개선] Interactive 모드 (-d) - 지능형 이벤트 점프(Jump) 기능 탑재
     // =================================================================================
     if (interactiveMode) {
         TApplication app("app", &argc, argv);
@@ -223,7 +224,6 @@ int main(int argc, char** argv) {
         TGraph* gFill[4]; 
 
         for (int i = 0; i < 4; i++) {
-            // Y축 라벨을 순수 신호 크기(Signal Amplitude)로 변경
             hWave[i] = new TH1I(Form("hWave_Ch%d", i), Form("Channel %d Signal;Time (ns);Signal Amplitude (ADC)", i), 1000, 0, 2000);
             hWave[i]->SetStats(0);
             hWave[i]->SetLineColor(kAzure + 2);
@@ -237,11 +237,13 @@ int main(int argc, char** argv) {
 
         unsigned char header[128];
         unsigned int eventID = 0;
+        unsigned int targetEventID = 0; // 💡 점프 목표 이벤트
 
         std::cout << "\n\033[1;35m========================================================\033[0m\n";
         std::cout << "\033[1;32m   [ Interactive Display Mode Activated ]\033[0m\n";
-        std::cout << "   -> GUI 창이나 터미널에서 \033[1;33m[ENTER]\033[0m 키를 누르면 다음 이벤트로 넘어갑니다.\n";
-        std::cout << "   -> 종료하려면 \033[1;31m'q'\033[0m 입력 후 엔터를 치세요.\n";
+        std::cout << "   -> \033[1;33m[ENTER]\033[0m   : Next Event (다음 이벤트로 이동)\n";
+        std::cout << "   -> \033[1;36m[NUMBER]\033[0m  : Jump to Event (해당 이벤트 번호로 워프)\n";
+        std::cout << "   -> \033[1;31m[q]\033[0m       : Quit (종료)\n";
         std::cout << "\033[1;35m========================================================\033[0m\n\n";
 
         while (fread(header, 1, 128, fp) == 128) {
@@ -255,10 +257,16 @@ int main(int argc, char** argv) {
             int recordLength = (data_length - 32) / 2;
             int payload_bytes = recordLength * 8; 
 
+            // 💡 [점프 엔진] 목표 이벤트 번호에 도달하지 않았다면, payload를 읽지 않고 fseek로 초고속 스킵!
+            if (eventID < targetEventID) {
+                fseek(fp, payload_bytes, SEEK_CUR);
+                eventID++;
+                continue;
+            }
+
             std::vector<unsigned char> payload(payload_bytes);
             if (fread(payload.data(), 1, payload_bytes, fp) != (size_t)payload_bytes) break; 
 
-            // 1. 먼저 파일에서 꺼낸 Raw 파형을 임시 배열에 저장 (페데스탈을 먼저 구해야 반전을 시킬 수 있으므로)
             std::vector<std::vector<unsigned short>> rawWave(4, std::vector<unsigned short>(recordLength));
 
             // 12-bit 디마스킹
@@ -276,36 +284,27 @@ int main(int argc, char** argv) {
                 c1->cd(i + 1);
                 gPad->SetGrid();
                 
-                // 2. 동적 페데스탈 계산 (앞 20개 샘플 평균)
                 double pedSum = 0;
                 int nPed = std::min(20, recordLength);
-                for (int pt = 0; pt < nPed; pt++) {
-                    pedSum += rawWave[i][pt];
-                }
+                for (int pt = 0; pt < nPed; pt++) pedSum += rawWave[i][pt];
                 double baseline = (nPed > 0) ? (pedSum / nPed) : 0;
 
-                // 💡 [핵심] 3. 페데스탈(0)을 기준으로 위아래 반전(Invert) 적용 및 폴리곤 채우기
                 gFill[i]->Set(0); 
-                gFill[i]->SetPoint(0, 0, 0); // 반전되었으므로 기준선은 완벽한 0 입니다.
+                gFill[i]->SetPoint(0, 0, 0); 
                 
                 for (int j = 0; j < recordLength; j++) {
-                    // (기준선 - Raw) 연산을 통해 신호가 위로 솟구치도록(Positive-going) 변환!
                     double inverted_sig = baseline - rawWave[i][j]; 
-                    
-                    hWave[i]->SetBinContent(j + 1, inverted_sig); // 뼈대 업데이트
-                    gFill[i]->SetPoint(j + 1, j * 2.0, inverted_sig); // 빗금 칠할 다각형 꼭짓점 추가
+                    hWave[i]->SetBinContent(j + 1, inverted_sig); 
+                    gFill[i]->SetPoint(j + 1, j * 2.0, inverted_sig); 
                 }
-                gFill[i]->SetPoint(recordLength + 1, (recordLength - 1) * 2.0, 0); // 폴리곤 끝점 바닥(0) 마감
+                gFill[i]->SetPoint(recordLength + 1, (recordLength - 1) * 2.0, 0); 
 
                 hWave[i]->SetTitle(Form("Event %u - Channel %d (Base: %.1f);Time (ns);Signal Amplitude (ADC)", eventID, i, baseline));
-                
-                // Y축은 반전되었으므로 -100 (노이즈 흔들림용) ~ 4100 (12-bit 최대치) 영역으로 고정
                 hWave[i]->GetYaxis()->SetRangeUser(-100, 4200); 
                 
                 hWave[i]->Draw("HIST"); 
                 gFill[i]->Draw("F SAME"); 
 
-                // 💡 [핵심] 4. 베이스라인(이제 0)의 궤적을 알려주는 빨간 점선 가이드
                 TLine lPed;
                 lPed.SetLineColor(kRed);
                 lPed.SetLineStyle(2);
@@ -314,14 +313,51 @@ int main(int argc, char** argv) {
             c1->Modified();
             c1->Update();
 
-            std::cout << "\033[1;36mEvent " << eventID << " Loaded.\033[0m Press ENTER for next, 'q' to quit : ";
-            std::string input;
-            std::getline(std::cin, input);
-            if (input == "q" || input == "Q") {
-                std::cout << "\033[1;33mUser requested exit.\033[0m\n";
-                break;
+            // 💡 [상호작용 엔진] 사용자가 번호를 입력할 때까지 대기 (이때 ROOT 캔버스는 얼지 않고 작동함!)
+            bool requires_rewind = false;
+            while (true) {
+                std::cout << "\033[1;36mEvent " << eventID << " Loaded.\033[0m [ENTER]: Next | [q]: Quit | [Number]: Jump -> " << std::flush;
+                
+                // 엔터키가 들어오기 전까지 ROOT 캔버스 GUI 이벤트를 계속 살려둠 (줌, 패닝 등 가능)
+                while (!kbhit()) {
+                    gSystem->ProcessEvents();
+                    usleep(10000);
+                }
+
+                std::string input;
+                std::getline(std::cin, input);
+                
+                if (input.empty()) {
+                    targetEventID = eventID + 1; // 다음 이벤트
+                    break;
+                } else if (input == "q" || input == "Q") {
+                    std::cout << "\033[1;33mUser requested exit.\033[0m\n";
+                    fclose(fp);
+                    return 0;
+                } else {
+                    try {
+                        int jump_idx = std::stoi(input);
+                        if (jump_idx < 0) {
+                            std::cout << "\033[1;31mEvent number cannot be negative.\033[0m\n";
+                        } else if (jump_idx <= (int)eventID) {
+                            std::cout << "\033[1;33mRewinding to Event " << jump_idx << "...\033[0m\n";
+                            rewind(fp); // 💡 타임머신: 과거 이벤트로 돌아가기 위해 파일을 맨 처음으로 되감음
+                            eventID = 0;
+                            targetEventID = jump_idx;
+                            requires_rewind = true;
+                            break;
+                        } else {
+                            std::cout << "\033[1;33mFast-forwarding to Event " << jump_idx << "...\033[0m\n";
+                            targetEventID = jump_idx; // 💡 미래 이벤트: 다음 루프부터 그 번호가 될때까지 안 그리고 고속 패스함
+                            break;
+                        }
+                    } catch (...) {
+                        std::cout << "\033[1;31mInvalid input. Enter a number or 'q'.\033[0m\n";
+                    }
+                }
             }
 
+            if (requires_rewind) continue; // 과거로 갔으면 eventID 올리지 않고 파일 처음부터 루프 재시작
             eventID++;
         }
 
