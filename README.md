@@ -84,6 +84,8 @@ NKFADC500_mini_CLI/
 su
 
 # 2. 필수 환경 변수 로드 (본인 시스템 경로에 맞게 수정)
+mkdir /usr/local/notice/include
+mkdir /usr/local/notice/lib
 source /usr/local/notice/notice_env.sh
 source /usr/local/bin/thisroot.sh
 
@@ -187,27 +189,3 @@ root -l 'offline_compton_edge.cpp("data/run_0001_prod.root", 0, 2000.0)'
 최근 시스템 코어 및 프론트엔드 연동 아키텍처 개편에 맞추어 GUI 레이아웃이 새롭게 업그레이드되었습니다. 
 
 (최신 버전의 UI/UX 스크린샷 업데이트 예정입니다.)
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/caf885ed-6a0e-49b9-b3d4-640814ba8622" />
-<img width="1620" height="840" alt="image" src="https://github.com/user-attachments/assets/479fa003-bcf3-45d4-88e6-4eeb6a5af267" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/68e789c8-bd36-41de-89f7-7e63d8b898ca" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/c5858df4-c5cb-4b36-87c3-d2c69a1cf1da" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/cca1b29c-21c0-4f47-a844-ef76cb35266c" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/e56c3927-fdb1-4fc0-956c-825f6cdf4e41" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/88afd1a2-55e9-4770-8f9b-251395f70e96" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/1c4f2458-44b4-4d81-a955-bacb10501f02" />
-<img width="1620" height="1040" alt="image" src="https://github.com/user-attachments/assets/2fd31349-56b7-4d9b-9a19-f5a6300b1819" />
-<img width="1420" height="640" alt="image" src="https://github.com/user-attachments/assets/6302864c-0d4d-4d2d-9111-0757d465f2de" />
-<img width="1420" height="940" alt="image" src="https://github.com/user-attachments/assets/a9b391dc-5b15-4d8b-9183-6acb0cf3da12" />
-<img width="1020" height="740" alt="image" src="https://github.com/user-attachments/assets/b60cfbac-8913-41c8-bb8a-0bc9c070f654" />
-
-
-
-
-
-
-
-
-
-
-
-

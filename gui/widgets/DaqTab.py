@@ -51,9 +51,22 @@ class DaqTab(QWidget):
         cfg_group = QGroupBox("Run & Config Settings")
         cfg_layout = QGridLayout()
         
-        cfg_layout.addWidget(QLabel("Run Number:"), 0, 0)
+        # 💡 [마이너 패치] 파일 접두사(Prefix)와 Run Number를 분리하여 나란히 배치
+        cfg_layout.addWidget(QLabel("File Name (Prefix_Run):"), 0, 0)
+        prefix_run_lay = QHBoxLayout()
+        prefix_run_lay.setContentsMargins(0, 0, 0, 0)
+        
+        self.input_prefix = QLineEdit()
+        self.input_prefix.setText("run") # 기본값 유지
+        self.input_prefix.setToolTip("Custom prefix (e.g., laser, calib, bg)")
+        
         self.input_run = QLineEdit()
-        cfg_layout.addWidget(self.input_run, 0, 1)
+        
+        prefix_run_lay.addWidget(self.input_prefix)
+        prefix_run_lay.addWidget(QLabel("_"))
+        prefix_run_lay.addWidget(self.input_run)
+        
+        cfg_layout.addLayout(prefix_run_lay, 0, 1)
 
         cfg_layout.addWidget(QLabel("Hardware Config:"), 1, 0)
         self.combo_cfg = QComboBox()
@@ -194,14 +207,19 @@ class DaqTab(QWidget):
         self.daq_manager.state_signal.connect(self.handle_process_state)
 
     def generate_out_filename(self, subrun=0):
+        # 💡 [마이너 패치] 사용자가 입력한 Prefix와 Run Number를 조합하여 안전하게 파일명 생성
+        prefix = self.input_prefix.text().strip()
+        if not prefix: prefix = "run"
+        
         run_num = self.input_run.text().strip()
         if not run_num: run_num = "999"
+        
         target_dir = self.path_data.get_path()
         
         if self.auto_mode == "MANUAL" and self.max_subruns > 1:
-            fname = f"run_{run_num}_{subrun:03d}.dat"
+            fname = f"{prefix}_{run_num}_{subrun:03d}.dat"
         else:
-            fname = f"run_{run_num}.dat"
+            fname = f"{prefix}_{run_num}.dat"
             
         return os.path.join(target_dir, fname)
 
@@ -269,13 +287,14 @@ class DaqTab(QWidget):
         self.btn_stop_man.setEnabled(True)
         self.start_time = datetime.now()
         
-        run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
+        # UI 모드 라벨 렌더링에 사용할 이름 조합
+        prefix = self.input_prefix.text().strip() or "run"
+        run_str = f"{prefix}_{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else f"{prefix}_{self.input_run.text()}"
         self.sig_mode.emit(f"RUN [{run_str}]")
         
         cfg_summary = self.get_config_summary(cfg_file)
         self.sig_config.emit(cfg_summary)
 
-        # 💡 [히든 처리] 명령어 조합 로깅을 제거하고 짧은 안내 메시지로 교체
         self.sig_log.emit("\033[1;36m[SYSTEM] Starting DAQ...\033[0m", False)
 
         self.daq_manager.start_process(bin_path, args)
@@ -318,7 +337,8 @@ class DaqTab(QWidget):
         scan_html = f"<div style='color:#D32F2F; font-weight:bold; margin-bottom:5px;'>Scan Target THR: {curr_thr}</div>{cfg_summary}"
         self.sig_config.emit(scan_html)
         
-        self.current_out_file = os.path.join(self.path_data.get_path(), f"run_{self.input_run.text()}_thr{curr_thr}.dat") 
+        prefix = self.input_prefix.text().strip() or "run"
+        self.current_out_file = os.path.join(self.path_data.get_path(), f"{prefix}_{self.input_run.text()}_thr{curr_thr}.dat") 
         
         script_dir = os.path.dirname(os.path.abspath(__file__))
         bin_path = os.path.abspath(os.path.join(script_dir, "../../../bin/frontend_500_mini"))
@@ -327,7 +347,6 @@ class DaqTab(QWidget):
         if self.combo_scan_mode.currentIndex() == 0: args.extend(["-t", str(self.spin_scan_val.value())]) 
         else: args.extend(["-n", str(self.spin_scan_val.value())]) 
         
-        # 💡 [히든 처리] 긴 명령어 제거, 직관적인 메시지로 교체
         self.sig_log.emit(f"\033[1;36m[SYSTEM] Starting Scan Step (THR={curr_thr})...\033[0m", False)
         
         self.daq_manager.start_process(bin_path, args)
@@ -340,6 +359,7 @@ class DaqTab(QWidget):
     def handle_process_state(self, is_running):
         self.combo_cfg.setEnabled(not is_running)
         self.input_run.setEnabled(not is_running)
+        self.input_prefix.setEnabled(not is_running) # 💡 실행 중엔 접두사도 변경 금지
         
         if not is_running and self.start_time is not None:
             end_time = datetime.now()
@@ -378,6 +398,7 @@ class DaqTab(QWidget):
                 self.auto_mode = "NONE"
                 self.sig_mode.emit("IDLE")
                 
+                # 💡 [핵심] 기존 런 넘버 자동 증가 로직은 완벽히 보존됨
                 if self.input_run.text().isdigit():
                     next_run = str(int(self.input_run.text()) + 1)
                     self.input_run.setText(next_run)
@@ -410,8 +431,9 @@ class DaqTab(QWidget):
         bin_path = os.path.abspath(os.path.join(script_dir, "../../../bin/online_monitor"))
         
         if not self.current_out_file:
+            prefix = self.input_prefix.text().strip() or "run"
             run_str = f"{self.input_run.text()}_{self.current_subrun:03d}" if self.max_subruns > 1 else self.input_run.text()
-            self.current_out_file = os.path.join(self.data_dir, f"run_{run_str}.dat")
+            self.current_out_file = os.path.join(self.data_dir, f"{prefix}_{run_str}.dat")
             
         self.mon_process.start(bin_path, [self.current_out_file])
         
