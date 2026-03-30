@@ -51,20 +51,22 @@ class DaqTab(QWidget):
         cfg_group = QGroupBox("Run & Config Settings")
         cfg_layout = QGridLayout()
         
-        # 💡 [마이너 패치] 파일 접두사(Prefix)와 Run Number를 분리하여 나란히 배치
         cfg_layout.addWidget(QLabel("File Name (Prefix_Run):"), 0, 0)
         prefix_run_lay = QHBoxLayout()
         prefix_run_lay.setContentsMargins(0, 0, 0, 0)
+        prefix_run_lay.setSpacing(4)
         
+        # 💡 [UI 비율 패치] Prefix 입력창은 화면 끝까지 늘어나고, Run 번호는 70px 고정
         self.input_prefix = QLineEdit()
         self.input_prefix.setText("run") # 기본값 유지
-        self.input_prefix.setToolTip("Custom prefix (e.g., laser, calib, bg)")
+        self.input_prefix.setToolTip("Custom prefix (e.g., laser_1khz, calib_cs137, bg_overnight)")
         
         self.input_run = QLineEdit()
+        self.input_run.setFixedWidth(70) # 💡 고정
         
-        prefix_run_lay.addWidget(self.input_prefix)
-        prefix_run_lay.addWidget(QLabel("_"))
-        prefix_run_lay.addWidget(self.input_run)
+        prefix_run_lay.addWidget(self.input_prefix, 1) # 💡 stretch=1 (최대 확장)
+        prefix_run_lay.addWidget(QLabel("_"), 0)       # 💡 stretch=0 (크기 고정)
+        prefix_run_lay.addWidget(self.input_run, 0)    # 💡 stretch=0 (크기 고정)
         
         cfg_layout.addLayout(prefix_run_lay, 0, 1)
 
@@ -398,7 +400,6 @@ class DaqTab(QWidget):
                 self.auto_mode = "NONE"
                 self.sig_mode.emit("IDLE")
                 
-                # 💡 [핵심] 기존 런 넘버 자동 증가 로직은 완벽히 보존됨
                 if self.input_run.text().isdigit():
                     next_run = str(int(self.input_run.text()) + 1)
                     self.input_run.setText(next_run)
