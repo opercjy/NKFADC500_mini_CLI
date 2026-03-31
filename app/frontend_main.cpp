@@ -24,15 +24,19 @@ void SignalHandler(int signum) {
     }
 }
 
-// 도움말 출력
+// 💡 [UX 강화] 직관적이고 아름다운 Usage 출력 함수
 void PrintUsage() {
-    std::cout << "Usage: ./frontend_500_mini [options]\n"
-              << "Options:\n"
-              << "  -f <config_file>   : Path to settings.cfg (default: ../config/settings.cfg)\n"
-              << "  -o <output_file>   : Output raw data file (default: test_noise.dat)\n"
-              << "  -n <max_events>    : Stop after N events (default: 0 = infinite)\n"
-              << "  -t <max_time_sec>  : Stop after T seconds (default: 0 = infinite)\n"
-              << "  -h                 : Print this help message\n";
+    std::cout << "\n\033[1;36m======================================================================\033[0m\n";
+    std::cout << "\033[1;32m      NKFADC500 Mini - High-Speed Data Acquisition Frontend\033[0m\n";
+    std::cout << "\033[1;36m======================================================================\033[0m\n";
+    std::cout << "\033[1;33mUsage:\033[0m ./frontend_500_mini [options]\n\n";
+    std::cout << "\033[1;37m[Optional]\033[0m\n";
+    std::cout << "  -f <config>   : Path to settings.cfg (default: ../config/settings.cfg)\n";
+    std::cout << "  -o <file>     : Output raw data file (default: test_noise.dat)\n";
+    std::cout << "  -n <events>   : Stop after N events (default: 0 = infinite)\n";
+    std::cout << "  -t <sec>      : Stop after T seconds (default: 0 = infinite)\n";
+    std::cout << "  -h            : Print this help message\n";
+    std::cout << "\033[1;36m======================================================================\033[0m\n\n";
 }
 
 int main(int argc, char** argv) {
@@ -54,9 +58,15 @@ int main(int argc, char** argv) {
         }
     }
 
+    // 💡 인자 없이 실행 시 자동으로 도움말 출력
+    if (argc == 1) {
+        PrintUsage();
+        return 1;
+    }
+
     // 시그널 핸들러 등록
     std::signal(SIGINT, SignalHandler);
-    std::signal(SIGTERM, SignalHandler); // <--- 이 줄을 반드시 추가하십시오!
+    std::signal(SIGTERM, SignalHandler);
 
     // 설정 파싱
     RunInfo runInfo;
@@ -72,7 +82,7 @@ int main(int argc, char** argv) {
         ELog::Print(ELog::INFO, Form("Configuration backed up to: %s", backupConfig.c_str()));
     }
 
-    // DAQ 매니저 생성 및 가동 (배너는 내부에서 출력됨)
+    // DAQ 매니저 생성 및 가동
     gDaqManager = new BinaryDaqManager(&runInfo);
     gDaqManager->Start(outFile, maxEvents, maxTime);
 

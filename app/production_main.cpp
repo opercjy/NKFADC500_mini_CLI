@@ -20,21 +20,30 @@
 #include "TSystem.h"
 #include "ELog.hh"
 
-// 비동기 키보드 입력 감지 (ROOT 캔버스 렌더링 안 멈추게 하기 위함)
+// 비동기 키보드 입력 감지
 bool kbhit() {
     struct timeval tv = { 0L, 0L };
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(STDIN_FILENO, &fds);
+    fd_set fds; FD_ZERO(&fds); FD_SET(STDIN_FILENO, &fds);
     return select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0;
+}
+
+// 💡 [UX 강화] 직관적이고 아름다운 Usage 출력 함수
+void PrintUsage() {
+    std::cout << "\n\033[1;36m======================================================================\033[0m\n";
+    std::cout << "\033[1;32m      NKFADC500 Mini - Offline Production & Analysis Tool\033[0m\n";
+    std::cout << "\033[1;36m======================================================================\033[0m\n";
+    std::cout << "\033[1;33mUsage:\033[0m ./production_500_mini <raw_data_file.dat> [options]\n\n";
+    std::cout << "\033[1;37m[Required]\033[0m\n";
+    std::cout << "  <file>       : Input raw .dat file path\n\n";
+    std::cout << "\033[1;37m[Optional]\033[0m\n";
+    std::cout << "  -w           : Save full waveforms in the output tree (Warning: Large File)\n";
+    std::cout << "  -d           : Interactive Event Display Mode (Visual Waveform Debugger)\n";
+    std::cout << "\033[1;36m======================================================================\033[0m\n\n";
 }
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cout << "\033[1;36m========================================================\033[0m\n";
-        std::cout << "\033[1;32m       NKFADC500 Mini - Offline Production\033[0m\n";
-        std::cout << "\033[1;36m========================================================\033[0m\n";
-        ELog::Print(ELog::FATAL, "Usage: ./production_500_mini <raw_data_file.dat> [-w] [-d]");
+        PrintUsage();
         return 1;
     }
 
@@ -51,6 +60,14 @@ int main(int argc, char** argv) {
 
     if (inputFile.empty()) {
         ELog::Print(ELog::FATAL, "Input file is missing.");
+        return 1;
+    }
+    
+    // 💡 [버그 픽스] X11 환경 변수 체크 (Core Dump 방어)
+    if (interactiveMode && gSystem->Getenv("DISPLAY") == nullptr) {
+        std::cout << "\n\033[1;31m[FATAL ERROR]\033[0m No X11 DISPLAY found!\n";
+        std::cout << "Cannot open Interactive Canvas in Headless mode.\n";
+        std::cout << "Please reconnect via SSH using '\033[1;33mssh -X\033[0m' or '\033[1;33mssh -Y\033[0m'.\n\n";
         return 1;
     }
 
@@ -213,7 +230,7 @@ int main(int argc, char** argv) {
     }
 
     // =================================================================================
-    // 💡 [개선] Interactive 모드 (-d) - 지능형 이벤트 점프(Jump) 기능 탑재
+    // 💡 Interactive 모드 (-d) - 메모리 누수 해결 및 탐색(Prev/Jump) 엔진 고도화
     // =================================================================================
     if (interactiveMode) {
         TApplication app("app", &argc, argv);
@@ -222,6 +239,7 @@ int main(int argc, char** argv) {
 
         TH1I* hWave[4];
         TGraph* gFill[4]; 
+        TLine* lPed[4] = {nullptr, nullptr, nullptr, nullptr}; // 💡 [버그픽스] 힙 메모리 관리를 위한 TLine 포인터 배열화
 
         for (int i = 0; i < 4; i++) {
             hWave[i] = new TH1I(Form("hWave_Ch%d", i), Form("Channel %d Signal;Time (ns);Signal Amplitude (ADC)", i), 1000, 0, 2000);
@@ -237,12 +255,13 @@ int main(int argc, char** argv) {
 
         unsigned char header[128];
         unsigned int eventID = 0;
-        unsigned int targetEventID = 0; // 💡 점프 목표 이벤트
+        unsigned int targetEventID = 0; 
 
         std::cout << "\n\033[1;35m========================================================\033[0m\n";
         std::cout << "\033[1;32m   [ Interactive Display Mode Activated ]\033[0m\n";
         std::cout << "   -> \033[1;33m[ENTER]\033[0m   : Next Event (다음 이벤트로 이동)\n";
-        std::cout << "   -> \033[1;36m[NUMBER]\033[0m  : Jump to Event (해당 이벤트 번호로 워프)\n";
+        std::cout << "   -> \033[1;36m[p]\033[0m       : Previous Event (이전 이벤트로 돌아가기)\n";
+        std::cout << "   -> \033[1;36m[j]\033[0m       : Jump to Event (해당 이벤트 번호로 워프)\n";
         std::cout << "   -> \033[1;31m[q]\033[0m       : Quit (종료)\n";
         std::cout << "\033[1;35m========================================================\033[0m\n\n";
 
@@ -257,7 +276,6 @@ int main(int argc, char** argv) {
             int recordLength = (data_length - 32) / 2;
             int payload_bytes = recordLength * 8; 
 
-            // 💡 [점프 엔진] 목표 이벤트 번호에 도달하지 않았다면, payload를 읽지 않고 fseek로 초고속 스킵!
             if (eventID < targetEventID) {
                 fseek(fp, payload_bytes, SEEK_CUR);
                 eventID++;
@@ -269,7 +287,6 @@ int main(int argc, char** argv) {
 
             std::vector<std::vector<unsigned short>> rawWave(4, std::vector<unsigned short>(recordLength));
 
-            // 12-bit 디마스킹
             for (int j = 0; j < recordLength; j++) {
                 int offset = j * 8;
                 rawWave[0][j] = (payload[offset + 0] | (payload[offset + 4] << 8)) & 0x0FFF;
@@ -305,20 +322,20 @@ int main(int argc, char** argv) {
                 hWave[i]->Draw("HIST"); 
                 gFill[i]->Draw("F SAME"); 
 
-                TLine lPed;
-                lPed.SetLineColor(kRed);
-                lPed.SetLineStyle(2);
-                lPed.DrawLine(0, 0, (recordLength - 1) * 2.0, 0);
+                // 💡 [버그픽스] TLine을 매번 새로 만들지 않고 포인터로 안전하게 재사용(메모리 누수 차단)
+                if (lPed[i]) delete lPed[i];
+                lPed[i] = new TLine(0, 0, (recordLength - 1) * 2.0, 0);
+                lPed[i]->SetLineColor(kRed);
+                lPed[i]->SetLineStyle(2);
+                lPed[i]->Draw();
             }
             c1->Modified();
             c1->Update();
 
-            // 💡 [상호작용 엔진] 사용자가 번호를 입력할 때까지 대기 (이때 ROOT 캔버스는 얼지 않고 작동함!)
             bool requires_rewind = false;
             while (true) {
-                std::cout << "\033[1;36mEvent " << eventID << " Loaded.\033[0m [ENTER]: Next | [q]: Quit | [Number]: Jump -> " << std::flush;
+                std::cout << "\033[1;36mEvent " << eventID << " Loaded.\033[0m [ENTER]: Next | [p]: Prev | [q]: Quit | [j]: Jump -> " << std::flush;
                 
-                // 엔터키가 들어오기 전까지 ROOT 캔버스 GUI 이벤트를 계속 살려둠 (줌, 패닝 등 가능)
                 while (!kbhit()) {
                     gSystem->ProcessEvents();
                     usleep(10000);
@@ -327,37 +344,51 @@ int main(int argc, char** argv) {
                 std::string input;
                 std::getline(std::cin, input);
                 
-                if (input.empty()) {
-                    targetEventID = eventID + 1; // 다음 이벤트
+                if (input.empty() || input == "n" || input == "N") {
+                    targetEventID = eventID + 1;
                     break;
-                } else if (input == "q" || input == "Q") {
+                } 
+                else if (input == "p" || input == "P") { // 💡 [UX 강화] Previous 단축키 추가
+                    if (eventID > 0) {
+                        rewind(fp); 
+                        eventID = 0;
+                        targetEventID = eventID - 1; // 목표치를 방금 본 이벤트의 바로 앞으로 설정
+                        requires_rewind = true;
+                        break;
+                    } else {
+                        std::cout << "\033[1;31mAlready at the first event.\033[0m\n";
+                    }
+                }
+                else if (input == "q" || input == "Q") {
                     std::cout << "\033[1;33mUser requested exit.\033[0m\n";
                     fclose(fp);
                     return 0;
-                } else {
+                } 
+                else if (input == "j" || input == "J") {
+                    std::cout << "Enter target event number: ";
+                    std::string destStr;
+                    std::getline(std::cin, destStr);
                     try {
-                        int jump_idx = std::stoi(input);
+                        int jump_idx = std::stoi(destStr);
                         if (jump_idx < 0) {
                             std::cout << "\033[1;31mEvent number cannot be negative.\033[0m\n";
                         } else if (jump_idx <= (int)eventID) {
-                            std::cout << "\033[1;33mRewinding to Event " << jump_idx << "...\033[0m\n";
-                            rewind(fp); // 💡 타임머신: 과거 이벤트로 돌아가기 위해 파일을 맨 처음으로 되감음
+                            rewind(fp); 
                             eventID = 0;
                             targetEventID = jump_idx;
                             requires_rewind = true;
                             break;
                         } else {
-                            std::cout << "\033[1;33mFast-forwarding to Event " << jump_idx << "...\033[0m\n";
-                            targetEventID = jump_idx; // 💡 미래 이벤트: 다음 루프부터 그 번호가 될때까지 안 그리고 고속 패스함
+                            targetEventID = jump_idx; 
                             break;
                         }
                     } catch (...) {
-                        std::cout << "\033[1;31mInvalid input. Enter a number or 'q'.\033[0m\n";
+                        std::cout << "\033[1;31mInvalid number.\033[0m\n";
                     }
                 }
             }
 
-            if (requires_rewind) continue; // 과거로 갔으면 eventID 올리지 않고 파일 처음부터 루프 재시작
+            if (requires_rewind) continue; 
             eventID++;
         }
 
