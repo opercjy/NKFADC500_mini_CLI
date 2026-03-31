@@ -230,7 +230,7 @@ int main(int argc, char** argv) {
     }
 
     // =================================================================================
-    // 💡 Interactive 모드 (-d) - 메모리 누수 해결 및 탐색(Prev/Jump) 엔진 고도화
+    // 💡 Interactive 모드 (-d) - 터미널 수치 디스플레이(Amp/Time/Charge) 추가
     // =================================================================================
     if (interactiveMode) {
         TApplication app("app", &argc, argv);
@@ -239,7 +239,7 @@ int main(int argc, char** argv) {
 
         TH1I* hWave[4];
         TGraph* gFill[4]; 
-        TLine* lPed[4] = {nullptr, nullptr, nullptr, nullptr}; // 💡 [버그픽스] 힙 메모리 관리를 위한 TLine 포인터 배열화
+        TLine* lPed[4] = {nullptr, nullptr, nullptr, nullptr}; 
 
         for (int i = 0; i < 4; i++) {
             hWave[i] = new TH1I(Form("hWave_Ch%d", i), Form("Channel %d Signal;Time (ns);Signal Amplitude (ADC)", i), 1000, 0, 2000);
@@ -295,6 +295,8 @@ int main(int argc, char** argv) {
                 rawWave[3][j] = (payload[offset + 3] | (payload[offset + 7] << 8)) & 0x0FFF;
             }
 
+            std::cout << "\n\033[1;36m=== Event " << eventID << " ===\033[0m\n";
+
             for (int i = 0; i < 4; i++) {
                 hWave[i]->Reset();
                 hWave[i]->SetBins(recordLength, 0, recordLength * 2.0); 
@@ -309,12 +311,25 @@ int main(int argc, char** argv) {
                 gFill[i]->Set(0); 
                 gFill[i]->SetPoint(0, 0, 0); 
                 
+                double maxAmp = -9999.0;
+                double qSum = 0.0;
+                int maxIdx = 0;
+                
                 for (int j = 0; j < recordLength; j++) {
                     double inverted_sig = baseline - rawWave[i][j]; 
                     hWave[i]->SetBinContent(j + 1, inverted_sig); 
                     gFill[i]->SetPoint(j + 1, j * 2.0, inverted_sig); 
+                    
+                    // 💡 진폭, 시간 위치, 적분 전하량 계산 로직 추가
+                    if (inverted_sig > 0) qSum += inverted_sig;
+                    if (inverted_sig > maxAmp) {
+                        maxAmp = inverted_sig;
+                        maxIdx = j;
+                    }
                 }
                 gFill[i]->SetPoint(recordLength + 1, (recordLength - 1) * 2.0, 0); 
+                
+                double peakTime = maxIdx * 2.0; // 500MS/s = 2.0ns per sample
 
                 hWave[i]->SetTitle(Form("Event %u - Channel %d (Base: %.1f);Time (ns);Signal Amplitude (ADC)", eventID, i, baseline));
                 hWave[i]->GetYaxis()->SetRangeUser(-100, 4200); 
@@ -322,12 +337,14 @@ int main(int argc, char** argv) {
                 hWave[i]->Draw("HIST"); 
                 gFill[i]->Draw("F SAME"); 
 
-                // 💡 [버그픽스] TLine을 매번 새로 만들지 않고 포인터로 안전하게 재사용(메모리 누수 차단)
                 if (lPed[i]) delete lPed[i];
                 lPed[i] = new TLine(0, 0, (recordLength - 1) * 2.0, 0);
                 lPed[i]->SetLineColor(kRed);
                 lPed[i]->SetLineStyle(2);
                 lPed[i]->Draw();
+                
+                // 💡 터미널에 텍스트 형태로 출력 (FADC400 포맷 통일)
+                printf(" \033[1;33m[Ch %d]\033[0m Bsl: %6.1f | Amp: %6.1f | \033[1;32mTime: %6.1f ns\033[0m | Charge: %6.1f \n", i, baseline, maxAmp, peakTime, qSum);
             }
             c1->Modified();
             c1->Update();
@@ -348,11 +365,11 @@ int main(int argc, char** argv) {
                     targetEventID = eventID + 1;
                     break;
                 } 
-                else if (input == "p" || input == "P") { // 💡 [UX 강화] Previous 단축키 추가
+                else if (input == "p" || input == "P") { 
                     if (eventID > 0) {
                         rewind(fp); 
                         eventID = 0;
-                        targetEventID = eventID - 1; // 목표치를 방금 본 이벤트의 바로 앞으로 설정
+                        targetEventID = targetEventID - 1; // 💡 현재 화면의 바로 전 이벤트로 워프
                         requires_rewind = true;
                         break;
                     } else {
@@ -360,7 +377,7 @@ int main(int argc, char** argv) {
                     }
                 }
                 else if (input == "q" || input == "Q") {
-                    std::cout << "\033[1;33mUser requested exit.\033[0m\n";
+                    std::cout << "\n\033[1;33mUser requested exit.\033[0m\n";
                     fclose(fp);
                     return 0;
                 } 
