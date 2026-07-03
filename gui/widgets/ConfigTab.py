@@ -1,7 +1,7 @@
 import os
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QPlainTextEdit, QMessageBox, QLineEdit, QLabel, QFileDialog)
-from PyQt5.QtGui import QFont
+from PySide6.QtGui import QFont
 
 class ConfigTab(QWidget):
     def __init__(self):

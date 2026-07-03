@@ -1,12 +1,12 @@
 import os
 import re
 import signal 
-from PyQt5.QtCore import QObject, QProcess, pyqtSignal, QTimer
+from PySide6.QtCore import QObject, QProcess, Signal, QTimer
 
 class ProcessManager(QObject):
-    log_signal = pyqtSignal(str, bool)
-    state_signal = pyqtSignal(bool)
-    stat_signal = pyqtSignal(dict) 
+    log_signal = Signal(str, bool)
+    state_signal = Signal(bool)
+    stat_signal = Signal(dict) 
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,7 +21,11 @@ class ProcessManager(QObject):
         if self.process.state() == QProcess.NotRunning:
             # 💡 [GUI 로그 히든 처리] 길고 지저분한 실행 명령어 대신 심플한 메시지 출력
             self.log_signal.emit("<span style='color: #2E7D32;'><b>[GUI] Starting Data Acquisition Engine...</b></span>", False)
-            self.process.start(executable_path, arguments)
+            
+        # [HOTFIX] C++ 바이너리가 config/ 폴더를 정상적으로 찾을 수 있도록 작업 경로를 최상위로 고정
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+        self.process.setWorkingDirectory(root_dir)
+        self.process.start(executable_path, arguments)
 
     def stop_process(self):
         if self.process.state() == QProcess.Running:

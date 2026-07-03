@@ -1,6 +1,6 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 from windows.MainWindow import MainWindow
 
 def main():
@@ -14,7 +14,7 @@ def main():
     # 인자가 있다면 MainWindow로 타겟 경로를 넘겨줌
     window = MainWindow(target_dir=target_dir)
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
     main()

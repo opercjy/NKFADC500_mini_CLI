@@ -27,7 +27,6 @@ bool kbhit() {
     return select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0;
 }
 
-// 💡 [UX 강화] 직관적이고 아름다운 Usage 출력 함수
 void PrintUsage() {
     std::cout << "\n\033[1;36m======================================================================\033[0m\n";
     std::cout << "\033[1;32m      NKFADC500 Mini - Offline Production & Analysis Tool\033[0m\n";
@@ -63,7 +62,6 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    // 💡 [버그 픽스] X11 환경 변수 체크 (Core Dump 방어)
     if (interactiveMode && gSystem->Getenv("DISPLAY") == nullptr) {
         std::cout << "\n\033[1;31m[FATAL ERROR]\033[0m No X11 DISPLAY found!\n";
         std::cout << "Cannot open Interactive Canvas in Headless mode.\n";
@@ -82,7 +80,7 @@ int main(int argc, char** argv) {
     rewind(fp);
     double totalMB = totalBytes / 1048576.0;
 
-    std::string modeStr = "\033[1;33mFast Physics Mode (Charge/Peak only)\033[0m";
+    std::string modeStr = "\033[1;33mFast Physics Mode (Channel-wise Isolated)\033[0m";
     if (saveWaveform) modeStr = "\033[1;35mFull Waveform Mode (-w)\033[0m";
     if (interactiveMode) modeStr = "\033[1;36mInteractive Event Display (-d)\033[0m";
 
@@ -111,19 +109,22 @@ int main(int argc, char** argv) {
         unsigned int eventID = 0;
         unsigned long long triggerTime;
         int runNumber, recordLength;
-        double baseline[4], amplitude[4], charge[4];
+        double baseline[4], amplitude[4], charge[4], peakTime[4]; 
         std::vector<double> wTime[4], wDrop[4];
 
         tree->Branch("EventID", &eventID, "EventID/i");
         tree->Branch("TriggerTime", &triggerTime, "TriggerTime/l");
         tree->Branch("RunNumber", &runNumber, "RunNumber/I");
         tree->Branch("RecordLength", &recordLength, "RecordLength/I");
-        tree->Branch("Baseline", baseline, "Baseline[4]/D");
-        tree->Branch("Amplitude", amplitude, "Amplitude[4]/D");
-        tree->Branch("Charge", charge, "Charge[4]/D");
-        
-        if (saveWaveform) {
-            for(int i=0; i<4; i++) {
+
+        // 💡 [핵심 아키텍처 개조] 물리량들을 덩어리(Array)로 묶지 않고 채널별(Ch0~Ch3)로 완벽히 격리 분리
+        for(int i=0; i<4; i++) {
+            tree->Branch(Form("Baseline_Ch%d", i), &baseline[i], Form("Baseline_Ch%d/D", i));
+            tree->Branch(Form("Amplitude_Ch%d", i), &amplitude[i], Form("Amplitude_Ch%d/D", i));
+            tree->Branch(Form("Charge_Ch%d", i), &charge[i], Form("Charge_Ch%d/D", i));
+            tree->Branch(Form("PeakTime_Ch%d", i), &peakTime[i], Form("PeakTime_Ch%d/D", i));
+            
+            if (saveWaveform) {
                 tree->Branch(Form("wTime_Ch%d", i), &wTime[i]);
                 tree->Branch(Form("wDrop_Ch%d", i), &wDrop[i]);
             }
@@ -156,7 +157,7 @@ int main(int argc, char** argv) {
             currentBytes += payload_bytes;
 
             for(int i=0; i<4; i++) {
-                baseline[i] = 0; amplitude[i] = -9999; charge[i] = 0;
+                baseline[i] = 0; amplitude[i] = -9999; charge[i] = 0; peakTime[i] = 0;
                 wTime[i].clear(); wDrop[i].clear();
                 if (saveWaveform) {
                     wTime[i].reserve(recordLength);
@@ -181,16 +182,23 @@ int main(int argc, char** argv) {
                 for (int pt = 0; pt < nPed; pt++) pedSum += rawWave[ch][pt];
                 baseline[ch] = (nPed > 0) ? (pedSum / nPed) : 0;
 
+                int maxIdx = 0; // 💡 펄스 피크 타임 추출용 인덱스
+
                 for (int pt = 0; pt < recordLength; pt++) {
                     double drop = baseline[ch] - rawWave[ch][pt]; 
                     if (drop > 0) charge[ch] += drop;
-                    if (drop > amplitude[ch]) amplitude[ch] = drop;
+                    
+                    if (drop > amplitude[ch]) {
+                        amplitude[ch] = drop;
+                        maxIdx = pt;
+                    }
 
                     if (saveWaveform) {
                         wTime[ch].push_back(pt * 2.0); 
                         wDrop[ch].push_back(drop);
                     }
                 }
+                peakTime[ch] = maxIdx * 2.0; // 500MS/s -> 2.0 ns 단위 타임스탬프 변환
             }
 
             tree->Fill();
@@ -201,7 +209,6 @@ int main(int argc, char** argv) {
                 double total_elapsed = std::chrono::duration<double>(now - start_time).count();
                 double progress = (currentBytes / (double)totalBytes) * 100.0;
                 double speed_mbps = (currentBytes / 1048576.0) / total_elapsed;
-                
                 double eta_sec = (speed_mbps > 0) ? (totalMB - (currentBytes / 1048576.0)) / speed_mbps : 0;
 
                 std::cout << "\r\033[F\033[K" << "\033[1;36m[  Production Real-time Monitor  ]\033[0m"
@@ -230,7 +237,7 @@ int main(int argc, char** argv) {
     }
 
     // =================================================================================
-    // 💡 Interactive 모드 (-d) - 터미널 수치 디스플레이(Amp/Time/Charge) 추가
+    // Interactive 모드 (-d) - 터미널 수치 디스플레이(Amp/Time/Charge) 
     // =================================================================================
     if (interactiveMode) {
         TApplication app("app", &argc, argv);
@@ -320,7 +327,6 @@ int main(int argc, char** argv) {
                     hWave[i]->SetBinContent(j + 1, inverted_sig); 
                     gFill[i]->SetPoint(j + 1, j * 2.0, inverted_sig); 
                     
-                    // 💡 진폭, 시간 위치, 적분 전하량 계산 로직 추가
                     if (inverted_sig > 0) qSum += inverted_sig;
                     if (inverted_sig > maxAmp) {
                         maxAmp = inverted_sig;
@@ -329,7 +335,7 @@ int main(int argc, char** argv) {
                 }
                 gFill[i]->SetPoint(recordLength + 1, (recordLength - 1) * 2.0, 0); 
                 
-                double peakTime = maxIdx * 2.0; // 500MS/s = 2.0ns per sample
+                double peakTime = maxIdx * 2.0; 
 
                 hWave[i]->SetTitle(Form("Event %u - Channel %d (Base: %.1f);Time (ns);Signal Amplitude (ADC)", eventID, i, baseline));
                 hWave[i]->GetYaxis()->SetRangeUser(-100, 4200); 
@@ -343,7 +349,6 @@ int main(int argc, char** argv) {
                 lPed[i]->SetLineStyle(2);
                 lPed[i]->Draw();
                 
-                // 💡 터미널에 텍스트 형태로 출력 (FADC400 포맷 통일)
                 printf(" \033[1;33m[Ch %d]\033[0m Bsl: %6.1f | Amp: %6.1f | \033[1;32mTime: %6.1f ns\033[0m | Charge: %6.1f \n", i, baseline, maxAmp, peakTime, qSum);
             }
             c1->Modified();
@@ -369,7 +374,7 @@ int main(int argc, char** argv) {
                     if (eventID > 0) {
                         rewind(fp); 
                         eventID = 0;
-                        targetEventID = targetEventID - 1; // 💡 현재 화면의 바로 전 이벤트로 워프
+                        targetEventID = targetEventID - 1; 
                         requires_rewind = true;
                         break;
                     } else {

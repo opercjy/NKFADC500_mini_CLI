@@ -2,15 +2,15 @@ import os
 import shutil
 from datetime import datetime
 from core.DatabaseManager import DatabaseManager
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QGroupBox, QLineEdit, QFileDialog, QProgressBar, 
                              QCheckBox, QInputDialog)
-from PyQt5.QtCore import pyqtSignal, Qt
+from PySide6.QtCore import Signal, Qt
 from core.ProcessManager import ProcessManager
 from widgets.path_controller import PathControllerWidget  # 💡 경로 객체 임포트
 
 class ProductionTab(QWidget):
-    sig_log = pyqtSignal(str, bool)
+    sig_log = Signal(str, bool)
 
     # 💡 [OOP 개선] MainWindow에서 전달받은 data_dir과 config_dir을 모두 받습니다.
     def __init__(self, data_dir, config_dir):
@@ -82,7 +82,7 @@ class ProductionTab(QWidget):
         self.progress.setValue(0); self.start_time = datetime.now()
         self.final_stats = {'events': 0, 'speed': 0.0}
         
-        bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/production_500_mini"))
+        bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/production_nkfadc_500"))
         args = [infile]
         if self.chk_wave.isChecked(): args.append("-w")
         self.prod_manager.start_process(bin_path, args)
@@ -91,7 +91,7 @@ class ProductionTab(QWidget):
         infile = self.input_file.text().strip()
         if not infile: return
         self.start_time = None 
-        bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/production_500_mini"))
+        bin_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../bin/production_nkfadc_500"))
         self.prod_manager.start_process(bin_path, [infile, "-d"])
 
     def cmd_jump(self):

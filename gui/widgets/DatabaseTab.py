@@ -1,8 +1,8 @@
 import sqlite3
 import os
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, 
                              QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget)
-from PyQt5.QtCore import Qt
+from PySide6.QtCore import Qt
 
 class DatabaseTab(QWidget):
     def __init__(self):

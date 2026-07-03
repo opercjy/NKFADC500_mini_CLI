@@ -1,10 +1,10 @@
 import os
 import random
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QLineEdit, QGroupBox, QTableWidget, 
                              QTableWidgetItem, QCheckBox, QMessageBox, QHeaderView, QComboBox)
-from PyQt5.QtCore import pyqtSignal, QTimer, Qt
-from PyQt5.QtGui import QColor, QFont
+from PySide6.QtCore import Signal, QTimer, Qt
+from PySide6.QtGui import QColor, QFont
 
 try:
     from caen_libs import caenhvwrapper as hv
@@ -13,7 +13,7 @@ except ImportError:
     CAEN_AVAILABLE = False
 
 class HvTab(QWidget):
-    sig_log = pyqtSignal(str, bool)
+    sig_log = Signal(str, bool)
 
     def __init__(self):
         super().__init__()

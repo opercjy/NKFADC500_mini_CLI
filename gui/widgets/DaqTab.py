@@ -2,18 +2,18 @@ import os
 import glob
 from datetime import datetime
 from core.DatabaseManager import DatabaseManager
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QGroupBox, QLineEdit, QComboBox, QSpinBox, 
                              QGridLayout)
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QProcess
+from PySide6.QtCore import Qt, Signal, QTimer, QProcess
 from core.ProcessManager import ProcessManager
 from widgets.path_controller import PathControllerWidget  
 
 class DaqTab(QWidget):
-    sig_log = pyqtSignal(str, bool)
-    sig_stat = pyqtSignal(dict)
-    sig_mode = pyqtSignal(str)
-    sig_config = pyqtSignal(str) 
+    sig_log = Signal(str, bool)
+    sig_stat = Signal(dict)
+    sig_mode = Signal(str)
+    sig_config = Signal(str) 
 
     def __init__(self, data_dir, config_dir):
         super().__init__()
@@ -278,7 +278,7 @@ class DaqTab(QWidget):
         self.current_out_file = self.generate_out_filename(subrun_idx)
         
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        bin_path = os.path.abspath(os.path.join(script_dir, "../../../bin/frontend_500_mini"))
+        bin_path = os.path.abspath(os.path.join(script_dir, "../../../bin/frontend_nkfadc500"))
         
         args = ["-f", cfg_file, "-o", self.current_out_file]
         
@@ -343,7 +343,7 @@ class DaqTab(QWidget):
         self.current_out_file = os.path.join(self.path_data.get_path(), f"{prefix}_{self.input_run.text()}_thr{curr_thr}.dat") 
         
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        bin_path = os.path.abspath(os.path.join(script_dir, "../../../bin/frontend_500_mini"))
+        bin_path = os.path.abspath(os.path.join(script_dir, "../../../bin/frontend_nkfadc500"))
         
         args = ["-f", self.combo_cfg.currentData(), "-o", self.current_out_file]
         if self.combo_scan_mode.currentIndex() == 0: args.extend(["-t", str(self.spin_scan_val.value())]) 

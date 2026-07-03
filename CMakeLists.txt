@@ -28,11 +28,15 @@ if(NOT DEFINED ENV{NKHOME})
 endif()
 set(NKHOME $ENV{NKHOME})
 
-# 전역 헤더 및 라이브러리 탐색 경로
-include_directories(${ROOT_INCLUDE_DIRS} ${NKHOME}/include)
+# 3. 전역 헤더 및 라이브러리 탐색 경로 (의존성 맵핑)
+include_directories(
+    ${ROOT_INCLUDE_DIRS} 
+    ${NKHOME}/include 
+    /usr/include/libusb-1.0   # 💡 [핵심 버그픽스] OS 레벨 libusb 격리 경로 명시적 바인딩
+)
 link_directories(${NKHOME}/lib)
 
-# 3. 하위 모듈 빌드 트리
+# 4. 하위 모듈 빌드 트리
 add_subdirectory(objects)
 add_subdirectory(core)   
 add_subdirectory(app)    
