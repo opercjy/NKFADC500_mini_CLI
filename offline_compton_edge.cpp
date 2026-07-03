@@ -14,7 +14,6 @@ Double_t SmearedComptonEdge(Double_t *x, Double_t *par) {
     return par[0] * TMath::Erfc((x[0] - par[1]) / (TMath::Sqrt(2.0) * par[2])) + par[3];
 }
 
-// Usage: root -l 'offline_compton_edge.cpp("data/run_101_prod.root", 0, 2000.0)'
 void offline_compton_edge(const char* filename = "data/run_101_prod.root", int targetCh = 0, double x_max_pc = 2000.0) {
     gStyle->SetOptFit(1111); 
     TFile* f = TFile::Open(filename, "READ");
@@ -33,7 +32,6 @@ void offline_compton_edge(const char* filename = "data/run_101_prod.root", int t
 
     ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2"); 
 
-    // [Right-to-Left Edge Search Algorithm]
     int startBin = hCompton->FindBin(x_max_pc * 0.1); 
     int lastBin = hCompton->GetNbinsX();
     
