@@ -47,7 +47,7 @@ public:
 };
 
 // =========================================================================
-// [아키텍처 확장] Configuration Parser (설정 파일 트리거 딜레이 파싱)
+// 💡 [수정 완료] Configuration Parser (설정 파일 DLY 파싱)
 // =========================================================================
 double GetTriggerDelayFromConfig(const std::string& configPath) {
     double delay_ns = 400.0; // Default fallback
@@ -55,19 +55,23 @@ double GetTriggerDelayFromConfig(const std::string& configPath) {
     if (cfg.is_open()) {
         std::string line;
         while (std::getline(cfg, line)) {
+            // 주석 및 빈 줄 무시
             if (line.empty() || line[0] == '#') continue; 
             
-            if (line.find("TriggerDelayNs") != std::string::npos) {
-                std::istringstream iss(line);
-                std::string key;
-                if (iss >> key >> delay_ns) {
-                    break;
+            std::istringstream iss(line);
+            std::string key;
+            // 💡 "DLY" 키워드와 정확히 일치하는 경우에만 값을 파싱
+            if (iss >> key) {
+                if (key == "DLY") {
+                    if (iss >> delay_ns) {
+                        break;
+                    }
                 }
             }
         }
         cfg.close();
     } else {
-        ELog::Print(ELog::WARNING, "config/settings.cfg not found. Using default TriggerDelayNs = 400.0 ns");
+        ELog::Print(ELog::WARNING, "config/settings.cfg not found. Using default DLY = 400.0 ns");
     }
     return delay_ns;
 }
@@ -97,7 +101,6 @@ int main(int argc, char** argv) {
     bool saveWaveform = false;
     bool interactiveMode = false;
 
-    // 인자 파싱
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "-w") saveWaveform = true;
@@ -105,7 +108,6 @@ int main(int argc, char** argv) {
         else if (arg[0] != '-') inputFile = arg;
     }
 
-    // 히스토리 캐시 DB 연동
     HistoryCache cache;
     if (inputFile.empty()) {
         inputFile = cache.GetLastFile();
@@ -116,7 +118,6 @@ int main(int argc, char** argv) {
             std::cout << "\033[1;32m[INFO] Auto-loading last used file from cache DB:\033[0m " << inputFile << "\n";
         }
     } else {
-        // 새 파일이 입력되었으므로 캐시 DB 갱신
         cache.SaveFile(inputFile);
     }
     
@@ -138,7 +139,7 @@ int main(int argc, char** argv) {
     rewind(fp);
     double totalMB = totalBytes / 1048576.0;
 
-    // 트리거 딜레이 파싱 및 동적 윈도우 계산
+    // 트리거 딜레이(DLY) 파싱 및 동적 베이스라인 윈도우(40%) 계산
     double trigger_delay_ns = GetTriggerDelayFromConfig("config/settings.cfg");
     double base_window_ns = trigger_delay_ns * 0.40;
 
@@ -238,7 +239,7 @@ int main(int argc, char** argv) {
                 rawWave[3].push_back((payload[offset + 3] | (payload[offset + 7] << 8)) & 0x0FFF);
             }
 
-            // 💡 동적 윈도우 기반 베이스라인 및 적분 
+            // 💡 딜레이(DLY) 기반 동적 베이스라인 산출
             int nPed = std::min(static_cast<int>((trigger_delay_ns / 2.0) * 0.40), recordLength);
 
             for (int ch = 0; ch < 4; ch++) {
@@ -300,7 +301,7 @@ int main(int argc, char** argv) {
     }
 
     // =================================================================================
-    // Interactive 모드 (-d) 
+    // Interactive 모드 (-d)
     // =================================================================================
     if (interactiveMode) {
         TApplication app("app", &argc, argv);
@@ -367,7 +368,6 @@ int main(int argc, char** argv) {
 
             std::cout << "\n\033[1;36m=== Event " << eventID << " ===\033[0m\n";
 
-            // 💡 동적 윈도우 기반 베이스라인 
             int nPed = std::min(static_cast<int>((trigger_delay_ns / 2.0) * 0.40), recordLength);
 
             for (int i = 0; i < 4; i++) {
