@@ -5,9 +5,10 @@ from datetime import datetime
 
 from PySide6.QtWidgets import (QMainWindow, QTabWidget, QVBoxLayout, QHBoxLayout, 
                              QWidget, QStatusBar, QSplitter, QGroupBox, QLabel, 
-                             QTextEdit, QLCDNumber)
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QTextCursor, QColor
+                             QTextEdit, QLCDNumber, QLineEdit, QComboBox, 
+                             QSpinBox, QDoubleSpinBox, QCheckBox, QRadioButton)
+from PySide6.QtCore import Qt, QTimer, QSettings
+from PySide6.QtGui import QFont, QTextCursor, QColor, QCloseEvent
 
 from widgets.DaqTab import DaqTab
 from widgets.ConfigTab import ConfigTab
@@ -40,6 +41,9 @@ class MainWindow(QMainWindow):
         self.clock_timer.timeout.connect(self.update_clock)
         self.clock_timer.start(1000)
         self.last_was_progress = False 
+
+        # 💡 [핵심] UI 상태 영구 보존 엔진 가동
+        self._enable_auto_save()
 
     def initUI(self):
         self.setWindowTitle("NKFADC500 Mini - Ultimate DQM Panel")
@@ -254,6 +258,70 @@ class MainWindow(QMainWindow):
             self.lbl_start.setText("Start: --:--:--")
         else:
             self.lbl_start.setText(f"Start: {datetime.now().strftime('%H:%M:%S')}")
-            # 💡 [핵심] DAQ가 켜질 때, 생성된 타겟 파일 경로를 모니터 탭에 즉시 주입
             if hasattr(self.daq_tab, 'current_out_file'):
                 self.online_tab.current_file = self.daq_tab.current_out_file
+
+    # =========================================================================
+    # 💡 [Introspection 기반 전역 상태 보존/복원 엔진]
+    # =========================================================================
+    def _enable_auto_save(self):
+        """프로그램 내의 모든 입력 위젯을 자동으로 식별하여 고유 ID를 부여하고 이전 값을 로드합니다."""
+        components = [self, self.daq_tab, self.online_tab, self.prod_tab, self.hv_tab, self.tlt_tab, self.config_tab, self.db_tab]
+        
+        for comp in components:
+            prefix = comp.__class__.__name__
+            for attr_name, attr_value in comp.__dict__.items():
+                if isinstance(attr_value, QWidget) and not attr_value.objectName():
+                    # 개발자가 변수로 선언한 이름(예: edit_path)을 그대로 Object Name으로 등록
+                    attr_value.setObjectName(f"{prefix}_{attr_name}")
+                    
+        self.load_ui_settings()
+
+    def save_ui_settings(self):
+        """종료 시 QSettings를 이용해 OS 레지스트리/설정 파일에 현재 값 영구 저장"""
+        settings = QSettings("NoticeKorea", "NKFADC500_Mini_Config")
+        for widget in self.findChildren(QWidget):
+            name = widget.objectName()
+            if not name: continue
+            
+            try:
+                if isinstance(widget, QLineEdit):
+                    settings.setValue(name, widget.text())
+                elif isinstance(widget, QComboBox):
+                    settings.setValue(name, widget.currentText())
+                elif isinstance(widget, QSpinBox) or isinstance(widget, QDoubleSpinBox):
+                    settings.setValue(name, widget.value())
+                elif isinstance(widget, QCheckBox) or isinstance(widget, QRadioButton):
+                    settings.setValue(name, widget.isChecked())
+            except Exception:
+                pass
+
+    def load_ui_settings(self):
+        """시작 시 QSettings에서 값을 읽어와 원래 위젯에 주입"""
+        settings = QSettings("NoticeKorea", "NKFADC500_Mini_Config")
+        for widget in self.findChildren(QWidget):
+            name = widget.objectName()
+            if not name or not settings.contains(name): continue
+            
+            val = settings.value(name)
+            try:
+                if isinstance(widget, QLineEdit):
+                    widget.setText(str(val))
+                elif isinstance(widget, QComboBox):
+                    idx = widget.findText(str(val))
+                    if idx >= 0: widget.setCurrentIndex(idx)
+                elif isinstance(widget, QSpinBox) or isinstance(widget, QDoubleSpinBox):
+                    widget.setValue(float(val))
+                elif isinstance(widget, QCheckBox) or isinstance(widget, QRadioButton):
+                    if isinstance(val, str):
+                        widget.setChecked(val.lower() == 'true')
+                    else:
+                        widget.setChecked(bool(val))
+            except Exception:
+                pass
+
+    def closeEvent(self, event: QCloseEvent):
+        """GUI 창의 [X] 버튼을 눌러 종료할 때 강제 인터셉트하여 상태 저장"""
+        self.save_ui_settings()
+        self.append_log("[SYSTEM] User configuration saved successfully.", is_progress=False)
+        super().closeEvent(event)

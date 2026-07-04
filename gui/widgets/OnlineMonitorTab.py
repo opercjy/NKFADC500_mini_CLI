@@ -31,25 +31,34 @@ class OnlineMonitorTab(QWidget):
     def _init_ui(self):
         layout = QVBoxLayout(self)
 
+        # 1. 제어 버튼 패널
         ctrl_layout = QHBoxLayout()
         self.btn_start = QPushButton("▶ Start Live Monitor")
         self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
+        
         self.btn_stop = QPushButton("⏹ Stop Monitor")
         self.btn_stop.setStyleSheet("background-color: #F44336; color: white; font-weight: bold; padding: 5px;")
         self.btn_stop.setEnabled(False)
+        
+        # 💡 [신규 추가] 누적 데이터 및 파형 초기화 버튼
+        self.btn_clear = QPushButton("🔄 Clear Plots")
+        self.btn_clear.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 5px;")
         
         self.lbl_status = QLabel("Status: Stopped")
         self.lbl_status.setStyleSheet("color: red; font-weight: bold;")
         
         self.btn_start.clicked.connect(self.start_monitoring)
         self.btn_stop.clicked.connect(self.stop_monitoring)
+        self.btn_clear.clicked.connect(self.clear_plots)
 
         ctrl_layout.addWidget(self.btn_start)
         ctrl_layout.addWidget(self.btn_stop)
+        ctrl_layout.addWidget(self.btn_clear)
         ctrl_layout.addWidget(self.lbl_status)
         ctrl_layout.addStretch()
         layout.addLayout(ctrl_layout)
 
+        # 2. 실시간 분석 옵션 패널
         opt_layout = QHBoxLayout()
         
         ch_group = QGroupBox("Channel Visibility")
@@ -81,7 +90,6 @@ class OnlineMonitorTab(QWidget):
         self.spin_interval = QDoubleSpinBox()
         self.spin_interval.setRange(0.01, 2.0)
         self.spin_interval.setSingleStep(0.05)
-        # 💡 [반응성 개선] USB 버전과 유사한 20 FPS (0.05초) 환경으로 기본값 세팅
         self.spin_interval.setValue(0.05) 
         
         param_layout.addWidget(QLabel("Accumulate Events:"))
@@ -100,13 +108,13 @@ class OnlineMonitorTab(QWidget):
         opt_layout.addStretch()
         layout.addLayout(opt_layout)
 
+        # 3. 1:2 비율 그리드 뷰어 세팅
         self.splitter = QSplitter(Qt.Horizontal)
         
         self.plot_wave = pg.PlotWidget(title="Live Waveform (Time Domain)")
         self.plot_wave.setLabel('left', 'Voltage Drop', units='ADC')
         self.plot_wave.setLabel('bottom', 'Time', units='ns (2.0ns/Sample)')
         self.plot_wave.showGrid(x=True, y=True, alpha=0.3)
-        # 💡 [축 스케일링 개선] 고정 범위를 삭제하고 동적 Auto Range 활성화
         self.plot_wave.enableAutoRange(axis='y') 
         
         self.plot_spec = pg.PlotWidget(title="Pulse Spectrum (Histogram)")
@@ -131,10 +139,7 @@ class OnlineMonitorTab(QWidget):
 
     @Slot()
     def toggle_mode(self):
-        for i in range(4):
-            self.hist_data[i].clear()
-            self.curves_spec[i].setData([], [])
-        
+        self.clear_plots()
         if self.radio_amp.isChecked():
             self.plot_spec.setLabel('bottom', 'Amplitude (ADC)')
         else:
@@ -146,6 +151,21 @@ class OnlineMonitorTab(QWidget):
             is_visible = cb.isChecked()
             self.curves_wave[i].setVisible(is_visible)
             self.curves_spec[i].setVisible(is_visible)
+
+    # 💡 [핵심] Clear 버튼 연동 로직: 즉시 모든 메모리를 비우고 그래프를 지움
+    @Slot()
+    def clear_plots(self):
+        for i in range(4):
+            self.hist_data[i].clear()
+            self.latest_waveforms[i] = []
+            if i in self.curves_wave:
+                self.curves_wave[i].setData([], [])
+            if i in self.curves_spec:
+                self.curves_spec[i].setData([], [])
+        
+        if not self.timer.isActive():
+            self.lbl_status.setText("Status: Plots Cleared.")
+            self.lbl_status.setStyleSheet("color: blue; font-weight: bold;")
 
     @Slot()
     def start_monitoring(self):
@@ -164,11 +184,9 @@ class OnlineMonitorTab(QWidget):
         self.lbl_status.setText(f"Status: Direct Parsing {os.path.basename(self.current_file)}...")
         self.lbl_status.setStyleSheet("color: green; font-weight: bold;")
         
-        for i in range(4): 
-            self.hist_data[i].clear()
-            self.latest_waveforms[i] = []
-
+        self.clear_plots()
         self.file_pos = 0 
+        
         interval_ms = int(self.spin_interval.value() * 1000)
         self.timer.start(interval_ms)
 
@@ -187,9 +205,7 @@ class OnlineMonitorTab(QWidget):
         try:
             with open(self.current_file, 'rb') as f:
                 f.seek(self.file_pos)
-                
                 events_parsed = 0
-                # 💡 [반응성 개선] 짧은 인터벌(50ms) 동안 수만 개의 이벤트를 즉각 밀어내기 위해 허용치 확장
                 max_events_per_tick = 3000
 
                 while events_parsed < max_events_per_tick:
