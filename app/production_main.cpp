@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <vector>
 #include <string>
 #include <cstdint>
@@ -20,6 +21,57 @@
 #include "TSystem.h"
 #include "ELog.hh"
 
+// =========================================================================
+// [아키텍처 확장] Browser History Cache Manager (로컬 파일 DB)
+// =========================================================================
+class HistoryCache {
+private:
+    std::string cacheFile = ".fadc_browser.cache";
+public:
+    std::string GetLastFile() {
+        std::ifstream in(cacheFile);
+        std::string file = "";
+        if (in.is_open()) {
+            std::getline(in, file);
+            in.close();
+        }
+        return file;
+    }
+    void SaveFile(const std::string& file) {
+        std::ofstream out(cacheFile);
+        if (out.is_open()) {
+            out << file;
+            out.close();
+        }
+    }
+};
+
+// =========================================================================
+// [아키텍처 확장] Configuration Parser (설정 파일 트리거 딜레이 파싱)
+// =========================================================================
+double GetTriggerDelayFromConfig(const std::string& configPath) {
+    double delay_ns = 400.0; // Default fallback
+    std::ifstream cfg(configPath);
+    if (cfg.is_open()) {
+        std::string line;
+        while (std::getline(cfg, line)) {
+            if (line.empty() || line[0] == '#') continue; 
+            
+            if (line.find("TriggerDelayNs") != std::string::npos) {
+                std::istringstream iss(line);
+                std::string key;
+                if (iss >> key >> delay_ns) {
+                    break;
+                }
+            }
+        }
+        cfg.close();
+    } else {
+        ELog::Print(ELog::WARNING, "config/settings.cfg not found. Using default TriggerDelayNs = 400.0 ns");
+    }
+    return delay_ns;
+}
+
 // 비동기 키보드 입력 감지
 bool kbhit() {
     struct timeval tv = { 0L, 0L };
@@ -31,35 +83,41 @@ void PrintUsage() {
     std::cout << "\n\033[1;36m======================================================================\033[0m\n";
     std::cout << "\033[1;32m      NKFADC500 Mini - Offline Production & Analysis Tool\033[0m\n";
     std::cout << "\033[1;36m======================================================================\033[0m\n";
-    std::cout << "\033[1;33mUsage:\033[0m ./production_500_mini <raw_data_file.dat> [options]\n\n";
-    std::cout << "\033[1;37m[Required]\033[0m\n";
-    std::cout << "  <file>       : Input raw .dat file path\n\n";
+    std::cout << "\033[1;33mUsage:\033[0m ./production_500_mini [raw_data_file.dat] [options]\n\n";
+    std::cout << "\033[1;37m[Auto Cache Load]\033[0m\n";
+    std::cout << "  If no file is provided, the tool loads the last used file from cache.\n\n";
     std::cout << "\033[1;37m[Optional]\033[0m\n";
-    std::cout << "  -w           : Save full waveforms in the output tree (Warning: Large File)\n";
-    std::cout << "  -d           : Interactive Event Display Mode (Visual Waveform Debugger)\n";
+    std::cout << "  -w             : Save full waveforms in the output tree (Warning: Large File)\n";
+    std::cout << "  -d             : Interactive Event Display Mode (Visual Waveform Debugger)\n";
     std::cout << "\033[1;36m======================================================================\033[0m\n\n";
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        PrintUsage();
-        return 1;
-    }
-
     std::string inputFile = "";
     bool saveWaveform = false;
     bool interactiveMode = false;
 
+    // 인자 파싱
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "-w") saveWaveform = true;
         else if (arg == "-d") interactiveMode = true;
-        else inputFile = arg;
+        else if (arg[0] != '-') inputFile = arg;
     }
 
+    // 히스토리 캐시 DB 연동
+    HistoryCache cache;
     if (inputFile.empty()) {
-        ELog::Print(ELog::FATAL, "Input file is missing.");
-        return 1;
+        inputFile = cache.GetLastFile();
+        if (inputFile.empty()) {
+            PrintUsage();
+            return 1;
+        } else {
+            std::cout << "\033[1;32m[INFO] Auto-loading last used file from cache DB:\033[0m " << inputFile << "\n";
+        }
+    } else {
+        // 새 파일이 입력되었으므로 캐시 DB 갱신
+        cache.SaveFile(inputFile);
     }
     
     if (interactiveMode && gSystem->Getenv("DISPLAY") == nullptr) {
@@ -80,6 +138,10 @@ int main(int argc, char** argv) {
     rewind(fp);
     double totalMB = totalBytes / 1048576.0;
 
+    // 트리거 딜레이 파싱 및 동적 윈도우 계산
+    double trigger_delay_ns = GetTriggerDelayFromConfig("config/settings.cfg");
+    double base_window_ns = trigger_delay_ns * 0.40;
+
     std::string modeStr = "\033[1;33mFast Physics Mode (Channel-wise Isolated)\033[0m";
     if (saveWaveform) modeStr = "\033[1;35mFull Waveform Mode (-w)\033[0m";
     if (interactiveMode) modeStr = "\033[1;36mInteractive Event Display (-d)\033[0m";
@@ -95,6 +157,7 @@ int main(int argc, char** argv) {
         std::cout << "       [Output File]  " << outputFile << "\n";
     }
     std::cout << "       [Process Mode] " << modeStr << "\n";
+    std::cout << "       [Trig. Delay]  " << trigger_delay_ns << " ns (Base. Window: " << base_window_ns << " ns)\n";
     std::cout << "\033[1;36m========================================================\033[0m\n\n";
 
     if (!interactiveMode) {
@@ -117,7 +180,6 @@ int main(int argc, char** argv) {
         tree->Branch("RunNumber", &runNumber, "RunNumber/I");
         tree->Branch("RecordLength", &recordLength, "RecordLength/I");
 
-        // 💡 [핵심 아키텍처 개조] 물리량들을 덩어리(Array)로 묶지 않고 채널별(Ch0~Ch3)로 완벽히 격리 분리
         for(int i=0; i<4; i++) {
             tree->Branch(Form("Baseline_Ch%d", i), &baseline[i], Form("Baseline_Ch%d/D", i));
             tree->Branch(Form("Amplitude_Ch%d", i), &amplitude[i], Form("Amplitude_Ch%d/D", i));
@@ -176,14 +238,15 @@ int main(int argc, char** argv) {
                 rawWave[3].push_back((payload[offset + 3] | (payload[offset + 7] << 8)) & 0x0FFF);
             }
 
+            // 💡 동적 윈도우 기반 베이스라인 및 적분 
+            int nPed = std::min(static_cast<int>((trigger_delay_ns / 2.0) * 0.40), recordLength);
+
             for (int ch = 0; ch < 4; ch++) {
                 double pedSum = 0;
-                int nPed = std::min(20, recordLength);
                 for (int pt = 0; pt < nPed; pt++) pedSum += rawWave[ch][pt];
                 baseline[ch] = (nPed > 0) ? (pedSum / nPed) : 0;
 
-                int maxIdx = 0; // 💡 펄스 피크 타임 추출용 인덱스
-
+                int maxIdx = 0; 
                 for (int pt = 0; pt < recordLength; pt++) {
                     double drop = baseline[ch] - rawWave[ch][pt]; 
                     if (drop > 0) charge[ch] += drop;
@@ -198,7 +261,7 @@ int main(int argc, char** argv) {
                         wDrop[ch].push_back(drop);
                     }
                 }
-                peakTime[ch] = maxIdx * 2.0; // 500MS/s -> 2.0 ns 단위 타임스탬프 변환
+                peakTime[ch] = maxIdx * 2.0;
             }
 
             tree->Fill();
@@ -237,7 +300,7 @@ int main(int argc, char** argv) {
     }
 
     // =================================================================================
-    // Interactive 모드 (-d) - 터미널 수치 디스플레이(Amp/Time/Charge) 
+    // Interactive 모드 (-d) 
     // =================================================================================
     if (interactiveMode) {
         TApplication app("app", &argc, argv);
@@ -266,10 +329,10 @@ int main(int argc, char** argv) {
 
         std::cout << "\n\033[1;35m========================================================\033[0m\n";
         std::cout << "\033[1;32m   [ Interactive Display Mode Activated ]\033[0m\n";
-        std::cout << "   -> \033[1;33m[ENTER]\033[0m   : Next Event (다음 이벤트로 이동)\n";
-        std::cout << "   -> \033[1;36m[p]\033[0m       : Previous Event (이전 이벤트로 돌아가기)\n";
-        std::cout << "   -> \033[1;36m[j]\033[0m       : Jump to Event (해당 이벤트 번호로 워프)\n";
-        std::cout << "   -> \033[1;31m[q]\033[0m       : Quit (종료)\n";
+        std::cout << "   -> \033[1;33m[ENTER]\033[0m   : Next Event\n";
+        std::cout << "   -> \033[1;36m[p]\033[0m       : Previous Event\n";
+        std::cout << "   -> \033[1;36m[j]\033[0m       : Jump to Event\n";
+        std::cout << "   -> \033[1;31m[q]\033[0m       : Quit\n";
         std::cout << "\033[1;35m========================================================\033[0m\n\n";
 
         while (fread(header, 1, 128, fp) == 128) {
@@ -304,6 +367,9 @@ int main(int argc, char** argv) {
 
             std::cout << "\n\033[1;36m=== Event " << eventID << " ===\033[0m\n";
 
+            // 💡 동적 윈도우 기반 베이스라인 
+            int nPed = std::min(static_cast<int>((trigger_delay_ns / 2.0) * 0.40), recordLength);
+
             for (int i = 0; i < 4; i++) {
                 hWave[i]->Reset();
                 hWave[i]->SetBins(recordLength, 0, recordLength * 2.0); 
@@ -311,7 +377,6 @@ int main(int argc, char** argv) {
                 gPad->SetGrid();
                 
                 double pedSum = 0;
-                int nPed = std::min(20, recordLength);
                 for (int pt = 0; pt < nPed; pt++) pedSum += rawWave[i][pt];
                 double baseline = (nPed > 0) ? (pedSum / nPed) : 0;
 
