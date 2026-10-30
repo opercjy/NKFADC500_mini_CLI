@@ -1,0 +1,38 @@
+# Build & Output Directories
+build/
+bin/
+lib/
+
+# Raw / Processed DAQ Data & SQLite Run History
+data/*.dat
+data/*.root
+data/*.db
+data/*.db-journal
+data/*.cfg
+*.dat
+*_prod.root
+
+# Compiled Objects & Shared Libraries
+*.o
+*.so
+*.a
+*.pcm
+*.rootmap
+*Dict.cxx
+*Dict.cc
+*Dict.h
+
+# Python Cache & Local GUI State
+__pycache__/
+*.py[cod]
+.pytest_cache/
+gui/fadc_gui_state.ini
+bin/gui/fadc_gui_state.ini
+.fadc_browser.cache
+*.cache
+
+# Editor / OS Artifacts
+.vscode/
+.idea/
+.DS_Store
+*~

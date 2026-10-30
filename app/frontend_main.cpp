@@ -1,100 +1,136 @@
+#include <algorithm>
+#include <chrono>
+#include <csignal>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <getopt.h>
 #include <iostream>
 #include <string>
-#include <csignal>
 #include <thread>
-#include <chrono>
-#include <getopt.h>
-#include <cstdlib>
-#include <csignal>
 
-#include "RunInfo.hh"
-#include "ConfigParser.hh"
 #include "BinaryDaqManager.hh"
+#include "ConfigParser.hh"
 #include "ELog.hh"
+#include "RunInfo.hh"
 #include "TString.h"
 
-BinaryDaqManager* gDaqManager = nullptr;
+namespace {
+// Async-signal-safe termination flag (no mutex/malloc/stdio inside POSIX signal handler!)
+volatile std::sig_atomic_t gStopRequested = 0;
 
-// Ctrl+C 인터럽트 처리기 (안전 종료)
-void SignalHandler(int signum) {
-    std::cout << "\n";
-    ELog::Print(ELog::WARNING, "Interrupt signal (Ctrl+C) received! Shutting down gracefully...");
-    if (gDaqManager) {
-        gDaqManager->Stop();
-    }
+void SignalHandler(int /*signum*/) {
+    gStopRequested = 1;
 }
 
-// 💡 [UX 강화] 직관적이고 아름다운 Usage 출력 함수
-void PrintUsage() {
+void PrintUsage(const char* progName) {
     std::cout << "\n\033[1;36m======================================================================\033[0m\n";
     std::cout << "\033[1;32m      NKFADC500 Mini - High-Speed Data Acquisition Frontend\033[0m\n";
     std::cout << "\033[1;36m======================================================================\033[0m\n";
-    std::cout << "\033[1;33mUsage:\033[0m ./frontend_500_mini [options]\n\n";
-    std::cout << "\033[1;37m[Optional]\033[0m\n";
-    std::cout << "  -f <config>   : Path to settings.cfg (default: ../config/settings.cfg)\n";
-    std::cout << "  -o <file>     : Output raw data file (default: test_noise.dat)\n";
+    std::cout << "\033[1;33mUsage:\033[0m " << progName << " [options]\n\n";
+    std::cout << "\033[1;37m[Options]\033[0m\n";
+    std::cout << "  -f <config>   : Path to settings.cfg (default: config/settings.cfg)\n";
+    std::cout << "  -o <file>     : Output raw data file (default: data/test_noise.dat)\n";
     std::cout << "  -n <events>   : Stop after N events (default: 0 = infinite)\n";
     std::cout << "  -t <sec>      : Stop after T seconds (default: 0 = infinite)\n";
-    std::cout << "  -h            : Print this help message\n";
+    std::cout << "  --thr <adc>   : Override hardware trigger threshold THR (0..4095) on all channels\n";
+    std::cout << "  -h, --help    : Print this help message\n";
     std::cout << "\033[1;36m======================================================================\033[0m\n\n";
 }
+} // namespace
 
 int main(int argc, char** argv) {
-    std::string configFile = "../config/settings.cfg";
-    std::string outFile = "test_noise.dat";
+    std::string configFile = "config/settings.cfg";
+    std::string outFile = "data/test_noise.dat";
     int maxEvents = 0;
     int maxTime = 0;
+    int thrOverride = -1;
 
-    // 명령줄 인수 파싱
-    int opt;
-    while ((opt = getopt(argc, argv, "f:o:n:t:h")) != -1) {
+    static struct option long_options[] = {
+        {"config", required_argument, nullptr, 'f'},
+        {"output", required_argument, nullptr, 'o'},
+        {"events", required_argument, nullptr, 'n'},
+        {"time",   required_argument, nullptr, 't'},
+        {"thr",    required_argument, nullptr, 'T'},
+        {"help",   no_argument,       nullptr, 'h'},
+        {nullptr,  0,                 nullptr, 0}
+    };
+
+    int opt = 0;
+    while ((opt = getopt_long(argc, argv, "f:o:n:t:T:h", long_options, nullptr)) != -1) {
         switch (opt) {
             case 'f': configFile = optarg; break;
             case 'o': outFile = optarg; break;
-            case 'n': maxEvents = std::atoi(optarg); break;
-            case 't': maxTime = std::atoi(optarg); break;
-            case 'h': PrintUsage(); return 0;
-            default: PrintUsage(); return 1;
+            case 'n': maxEvents = std::max(0, std::atoi(optarg)); break;
+            case 't': maxTime = std::max(0, std::atoi(optarg)); break;
+            case 'T': thrOverride = std::clamp(std::atoi(optarg), 0, 4095); break;
+            case 'h': PrintUsage(argv[0]); return 0;
+            default:  PrintUsage(argv[0]); return 1;
         }
     }
 
-    // 💡 인자 없이 실행 시 자동으로 도움말 출력
     if (argc == 1) {
-        PrintUsage();
+        PrintUsage(argv[0]);
         return 1;
     }
 
-    // 시그널 핸들러 등록
+    // Fallback check if launched from bin/ with default relative config path
+    if (!std::filesystem::exists(configFile) && std::filesystem::exists("../config/settings.cfg")) {
+        configFile = "../config/settings.cfg";
+    }
+
     std::signal(SIGINT, SignalHandler);
     std::signal(SIGTERM, SignalHandler);
 
-    // 설정 파싱
     RunInfo runInfo;
-    ConfigParser parser;
-    if (!parser.Parse(configFile, &runInfo)) {
+    if (!ConfigParser::Parse(configFile, &runInfo)) {
         return 1;
     }
 
-    // Config 백업
-    std::string backupConfig = Form("run_%04d.cfg", runInfo.GetRunNumber());
-    std::string copyCmd = "cp " + configFile + " " + backupConfig;
-    if (system(copyCmd.c_str()) == 0) {
-        ELog::Print(ELog::INFO, Form("Configuration backed up to: %s", backupConfig.c_str()));
+    // Apply optional CLI threshold override (used by GUI Threshold Auto Scan)
+    if (thrOverride >= 0) {
+        for (int b = 0; b < runInfo.GetNFadcBD(); ++b) {
+            FadcBD* bd = runInfo.GetFadcBD(b);
+            if (!bd) continue;
+            for (int ch = 0; ch < bd->NCHANNEL(); ++ch) {
+                bd->SetTHR(ch, thrOverride);
+            }
+        }
+        ELog::Print(ELog::INFO, Form("Applied CLI threshold override: THR = %d ADC on all channels.", thrOverride));
     }
 
-    // DAQ 매니저 생성 및 가동
-    gDaqManager = new BinaryDaqManager(&runInfo);
-    gDaqManager->Start(outFile, maxEvents, maxTime);
-
-    // 메인 스레드는 DAQ가 끝날 때까지 대기
-    while (gDaqManager->IsRunning()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Ensure output parent directory exists and safely back up companion .cfg next to output .dat
+    try {
+        std::filesystem::path outPath(outFile);
+        if (outPath.has_parent_path()) {
+            std::filesystem::create_directories(outPath.parent_path());
+        }
+        std::filesystem::path backupCfgPath = outPath;
+        backupCfgPath.replace_extension(".cfg");
+        std::filesystem::copy_file(configFile, backupCfgPath, std::filesystem::copy_options::overwrite_existing);
+        if (thrOverride >= 0) {
+            std::ofstream ofs(backupCfgPath, std::ios::app);
+            ofs << "\n# CLI/Scan Threshold Override\nTHR " << thrOverride << "\n";
+        }
+        ELog::Print(ELog::INFO, Form("Configuration backed up to: %s", backupCfgPath.string().c_str()));
+    } catch (const std::exception& e) {
+        ELog::Print(ELog::WARNING, std::string("Could not back up configuration file: ") + e.what());
     }
 
-    // 안전하게 자원 해제
-    delete gDaqManager;
-    
+    BinaryDaqManager daqManager(&runInfo);
+    daqManager.Start(outFile, maxEvents, maxTime);
+
+    while (daqManager.IsRunning()) {
+        if (gStopRequested != 0) {
+            std::cout << "\n";
+            ELog::Print(ELog::WARNING, "Interrupt signal received! Shutting down DAQ gracefully...");
+            daqManager.Stop();
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    daqManager.Stop();
     ELog::Print(ELog::INFO, "DAQ System fully stopped and safely exited.");
-
     return 0;
 }

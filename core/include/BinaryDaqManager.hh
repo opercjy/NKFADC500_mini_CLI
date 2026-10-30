@@ -11,17 +11,19 @@
 
 class BinaryDaqManager {
 public:
-    BinaryDaqManager(RunInfo* runInfo);
+    explicit BinaryDaqManager(RunInfo* runInfo);
     ~BinaryDaqManager();
 
-    // 💡 maxEvents 파라미터 부활
+    BinaryDaqManager(const BinaryDaqManager&) = delete;
+    BinaryDaqManager& operator=(const BinaryDaqManager&) = delete;
+
     void Start(const std::string& outFileName, int maxEvents = 0, int maxTime = 0);
     void Stop();
     bool IsRunning() const { return fIsRunning.load(); }
 
 private:
     void ProducerWorker(int maxTime);
-    void ConsumerWorker(const std::string& outFileName, int maxEvents); // 💡 인자 추가
+    void ConsumerWorker(const std::string& outFileName, int maxEvents);
 
     RunInfo* fRunInfo;
     Fadc500Device* fDevice;
@@ -30,8 +32,8 @@ private:
     std::thread fProducerThread;
     std::thread fConsumerThread;
 
-    RawBufferPool fDataQueue; 
-    RawBufferPool fFreeQueue; 
+    RawBufferPool fDataQueue;
+    RawBufferPool fFreeQueue;
 };
 
 #endif

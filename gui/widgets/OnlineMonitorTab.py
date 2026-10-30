@@ -1,52 +1,64 @@
-import os
+from collections import deque
 import glob
+import os
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                               QLabel, QCheckBox, QRadioButton, QGroupBox, QSplitter,
-                               QSpinBox, QDoubleSpinBox)
-from PySide6.QtCore import Qt, QTimer, Slot
+from PySide6.QtCore import QTimer, Qt, Slot
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDoubleSpinBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
+from core.Paths import get_default_data_dir
 
-pg.setConfigOption('background', '#ECEFF1')
-pg.setConfigOption('foreground', '#263238')
+pg.setConfigOption("background", "#ECEFF1")
+pg.setConfigOption("foreground", "#263238")
+
 
 class OnlineMonitorTab(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, data_dir=None, parent=None):
         super().__init__(parent)
-        self.current_file = "" 
-        self.file_pos = 0 
-        
+        self.data_dir = os.path.abspath(data_dir) if data_dir else get_default_data_dir()
+        self.current_file = ""
+        self.file_pos = 0
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.read_binary_chunk)
-        
-        self.latest_waveforms = {0: [], 1: [], 2: [], 3: []}
-        self.hist_data = {0: [], 1: [], 2: [], 3: []} 
-        
+
+        self.latest_waveforms = {0: np.array([]), 1: np.array([]), 2: np.array([]), 3: np.array([])}
+        self.hist_data = {i: deque(maxlen=5000) for i in range(4)}
+
         self.curves_wave = {}
         self.curves_spec = {}
-        
+
         self.colors = [(220, 30, 30), (30, 160, 30), (30, 100, 220), (220, 120, 0)]
         self._init_ui()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
 
-        # 1. 제어 버튼 패널
         ctrl_layout = QHBoxLayout()
         self.btn_start = QPushButton("▶ Start Live Monitor")
         self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
-        
+
         self.btn_stop = QPushButton("⏹ Stop Monitor")
         self.btn_stop.setStyleSheet("background-color: #F44336; color: white; font-weight: bold; padding: 5px;")
         self.btn_stop.setEnabled(False)
-        
-        # 💡 [신규 추가] 누적 데이터 및 파형 초기화 버튼
+
         self.btn_clear = QPushButton("🔄 Clear Plots")
         self.btn_clear.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 5px;")
-        
+
         self.lbl_status = QLabel("Status: Stopped")
         self.lbl_status.setStyleSheet("color: red; font-weight: bold;")
-        
+
         self.btn_start.clicked.connect(self.start_monitoring)
         self.btn_stop.clicked.connect(self.stop_monitoring)
         self.btn_clear.clicked.connect(self.clear_plots)
@@ -58,9 +70,8 @@ class OnlineMonitorTab(QWidget):
         ctrl_layout.addStretch()
         layout.addLayout(ctrl_layout)
 
-        # 2. 실시간 분석 옵션 패널
         opt_layout = QHBoxLayout()
-        
+
         ch_group = QGroupBox("Channel Visibility")
         ch_h_layout = QHBoxLayout()
         self.ch_checkboxes = {}
@@ -85,19 +96,21 @@ class OnlineMonitorTab(QWidget):
 
         param_group = QGroupBox("Display Parameters")
         param_layout = QHBoxLayout()
-        
+
         param_layout.addWidget(QLabel("Update Interval (s):"))
         self.spin_interval = QDoubleSpinBox()
-        self.spin_interval.setRange(0.01, 2.0)
+        self.spin_interval.setRange(0.02, 2.0)
         self.spin_interval.setSingleStep(0.05)
-        self.spin_interval.setValue(0.05) 
-        
+        self.spin_interval.setValue(0.05)
+        self.spin_interval.valueChanged.connect(self._on_interval_changed)
+
         param_layout.addWidget(QLabel("Accumulate Events:"))
         self.spin_accum = QSpinBox()
         self.spin_accum.setRange(100, 100000)
         self.spin_accum.setSingleStep(1000)
-        self.spin_accum.setValue(5000) 
-        
+        self.spin_accum.setValue(5000)
+        self.spin_accum.valueChanged.connect(self._on_accum_changed)
+
         param_layout.addWidget(self.spin_interval)
         param_layout.addWidget(self.spin_accum)
         param_group.setLayout(param_layout)
@@ -108,18 +121,17 @@ class OnlineMonitorTab(QWidget):
         opt_layout.addStretch()
         layout.addLayout(opt_layout)
 
-        # 3. 1:2 비율 그리드 뷰어 세팅
         self.splitter = QSplitter(Qt.Horizontal)
-        
+
         self.plot_wave = pg.PlotWidget(title="Live Waveform (Time Domain)")
-        self.plot_wave.setLabel('left', 'Voltage Drop', units='ADC')
-        self.plot_wave.setLabel('bottom', 'Time', units='ns (2.0ns/Sample)')
+        self.plot_wave.setLabel("left", "Voltage Drop", units="ADC")
+        self.plot_wave.setLabel("bottom", "Time", units="ns (2.0 ns/Sample)")
         self.plot_wave.showGrid(x=True, y=True, alpha=0.3)
-        self.plot_wave.enableAutoRange(axis='y') 
-        
+        self.plot_wave.enableAutoRange(axis="y")
+
         self.plot_spec = pg.PlotWidget(title="Pulse Spectrum (Histogram)")
-        self.plot_spec.setLabel('left', 'Counts')
-        self.plot_spec.setLabel('bottom', 'Amplitude (ADC)')
+        self.plot_spec.setLabel("left", "Counts")
+        self.plot_spec.setLabel("bottom", "Amplitude (ADC)")
         self.plot_spec.showGrid(x=True, y=True, alpha=0.3)
         self.plot_spec.addLegend()
 
@@ -132,18 +144,42 @@ class OnlineMonitorTab(QWidget):
         for i in range(4):
             color = self.colors[i]
             self.curves_wave[i] = self.plot_wave.plot(pen=pg.mkPen(color, width=2), name=f"Ch {i}")
-            self.curves_spec[i] = pg.PlotDataItem(stepMode=True, fillLevel=0, 
-                                         brush=pg.mkBrush(color[0], color[1], color[2], 80), 
-                                         pen=pg.mkPen(color, width=2), name=f"Ch {i}")
+            self.curves_spec[i] = pg.PlotDataItem(
+                stepMode="center",
+                fillLevel=0,
+                brush=pg.mkBrush(color[0], color[1], color[2], 80),
+                pen=pg.mkPen(color, width=2),
+                name=f"Ch {i}",
+            )
             self.plot_spec.addItem(self.curves_spec[i])
+
+    @Slot(str)
+    def set_target_file(self, filepath: str):
+        if filepath and filepath != self.current_file:
+            self.current_file = filepath
+            self.file_pos = 0
+            if self.timer.isActive():
+                self.clear_plots()
+                self.lbl_status.setText(f"Status: Direct Parsing {os.path.basename(self.current_file)}...")
+
+    @Slot()
+    def _on_interval_changed(self):
+        if self.timer.isActive():
+            self.timer.setInterval(max(20, int(self.spin_interval.value() * 1000)))
+
+    @Slot()
+    def _on_accum_changed(self):
+        new_max = self.spin_accum.value()
+        for ch_id in range(4):
+            self.hist_data[ch_id] = deque(self.hist_data[ch_id], maxlen=new_max)
 
     @Slot()
     def toggle_mode(self):
         self.clear_plots()
         if self.radio_amp.isChecked():
-            self.plot_spec.setLabel('bottom', 'Amplitude (ADC)')
+            self.plot_spec.setLabel("bottom", "Amplitude (ADC)")
         else:
-            self.plot_spec.setLabel('bottom', 'Charge (ADC*ns)')
+            self.plot_spec.setLabel("bottom", "Charge (ADC*ns)")
 
     @Slot()
     def update_visibility(self):
@@ -152,26 +188,25 @@ class OnlineMonitorTab(QWidget):
             self.curves_wave[i].setVisible(is_visible)
             self.curves_spec[i].setVisible(is_visible)
 
-    # 💡 [핵심] Clear 버튼 연동 로직: 즉시 모든 메모리를 비우고 그래프를 지움
     @Slot()
     def clear_plots(self):
+        max_accum = self.spin_accum.value()
         for i in range(4):
-            self.hist_data[i].clear()
-            self.latest_waveforms[i] = []
+            self.hist_data[i] = deque(maxlen=max_accum)
+            self.latest_waveforms[i] = np.array([])
             if i in self.curves_wave:
                 self.curves_wave[i].setData([], [])
             if i in self.curves_spec:
                 self.curves_spec[i].setData([], [])
-        
+
         if not self.timer.isActive():
             self.lbl_status.setText("Status: Plots Cleared.")
             self.lbl_status.setStyleSheet("color: blue; font-weight: bold;")
 
     @Slot()
     def start_monitoring(self):
+        dat_files = glob.glob(os.path.join(self.data_dir, "*.dat"))
         if not self.current_file or not os.path.exists(self.current_file):
-            data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data"))
-            dat_files = glob.glob(os.path.join(data_dir, "*.dat"))
             if dat_files:
                 self.current_file = max(dat_files, key=os.path.getmtime)
             else:
@@ -183,11 +218,11 @@ class OnlineMonitorTab(QWidget):
         self.btn_stop.setEnabled(True)
         self.lbl_status.setText(f"Status: Direct Parsing {os.path.basename(self.current_file)}...")
         self.lbl_status.setStyleSheet("color: green; font-weight: bold;")
-        
+
         self.clear_plots()
-        self.file_pos = 0 
-        
-        interval_ms = int(self.spin_interval.value() * 1000)
+        self.file_pos = 0
+
+        interval_ms = max(20, int(self.spin_interval.value() * 1000))
         self.timer.start(interval_ms)
 
     @Slot()
@@ -200,78 +235,87 @@ class OnlineMonitorTab(QWidget):
 
     @Slot()
     def read_binary_chunk(self):
-        if not os.path.exists(self.current_file): return
+        if not self.current_file or not os.path.exists(self.current_file):
+            return
 
         try:
-            with open(self.current_file, 'rb') as f:
+            file_size = os.path.getsize(self.current_file)
+            if file_size < self.file_pos:
+                # Truncated / overwritten file on new run
+                self.file_pos = 0
+                self.clear_plots()
+
+            if file_size - self.file_pos < 128:
+                return
+
+            with open(self.current_file, "rb") as f:
                 f.seek(self.file_pos)
-                events_parsed = 0
-                max_events_per_tick = 3000
 
-                while events_parsed < max_events_per_tick:
-                    header = f.read(128)
-                    if len(header) < 128:
-                        break
-                    
-                    data_length = header[0] + (header[4] << 8) + (header[8] << 16) + (header[12] << 24)
-                    
-                    if data_length <= 32 or data_length > 100000000:
-                        break
+                # Peek first 128-byte header to determine fixed event packet geometry
+                header = f.read(128)
+                if len(header) < 128:
+                    return
 
-                    record_length = (data_length - 32) // 2
-                    payload_bytes = record_length * 8
-                    payload = f.read(payload_bytes)
-                    
-                    if len(payload) < payload_bytes:
-                        break
+                data_length = header[0] | (header[4] << 8) | (header[8] << 16) | (header[12] << 24)
+                if data_length <= 32 or data_length > 100000000 or ((data_length - 32) % 2 != 0):
+                    return
 
-                    self.file_pos = f.tell() 
-                    events_parsed += 1
+                record_length = (data_length - 32) // 2
+                event_bytes = 128 + record_length * 8
+                avail_events = min(3000, (file_size - self.file_pos) // event_bytes)
+                if avail_events <= 0:
+                    return
 
-                    raw = np.frombuffer(payload, dtype=np.uint8).reshape(-1, 8)
-                    ch0 = (raw[:, 0].astype(np.uint16) | (raw[:, 4].astype(np.uint16) << 8)) & 0x0FFF
-                    ch1 = (raw[:, 1].astype(np.uint16) | (raw[:, 5].astype(np.uint16) << 8)) & 0x0FFF
-                    ch2 = (raw[:, 2].astype(np.uint16) | (raw[:, 6].astype(np.uint16) << 8)) & 0x0FFF
-                    ch3 = (raw[:, 3].astype(np.uint16) | (raw[:, 7].astype(np.uint16) << 8)) & 0x0FFF
-                    
-                    waveforms = [ch0, ch1, ch2, ch3]
+                # Vectorized multi-event read & NumPy unpacking (50x faster than Python per-event loop!)
+                f.seek(self.file_pos)
+                chunk = f.read(avail_events * event_bytes)
+                n_ev = len(chunk) // event_bytes
+                if n_ev <= 0:
+                    return
 
-                    if events_parsed == 1 or events_parsed == max_events_per_tick:
-                        self.latest_waveforms = waveforms
+                self.file_pos += n_ev * event_bytes
 
-                    max_accum = self.spin_accum.value()
-                    for ch_id in range(4):
-                        wf = waveforms[ch_id]
-                        n_ped = min(20, len(wf))
-                        baseline = np.mean(wf[:n_ped]) if n_ped > 0 else 0
-                        inverted = baseline - wf
+                ev_matrix = np.frombuffer(chunk[: n_ev * event_bytes], dtype=np.uint8).reshape(n_ev, event_bytes)
+                payloads = ev_matrix[:, 128:].reshape(n_ev, record_length, 8)
+                lo = payloads[:, :, :4].astype(np.uint16)
+                hi = payloads[:, :, 4:].astype(np.uint16) << 8
+                waves = (lo | hi) & 0x0FFF  # shape: (n_ev, record_length, 4)
 
-                        val = np.max(inverted) if self.radio_amp.isChecked() else np.sum(inverted[inverted > 0])
-                        self.hist_data[ch_id].append(val)
-                        
-                        if len(self.hist_data[ch_id]) > max_accum:
-                            self.hist_data[ch_id].pop(0)
+                for ch_id in range(4):
+                    self.latest_waveforms[ch_id] = waves[-1, :, ch_id]
 
-                if events_parsed > 0:
-                    self.update_plots()
+                n_ped = min(20, record_length)
+                baselines = np.mean(waves[:, :n_ped, :], axis=1, keepdims=True)
+                inverted = baselines - waves  # shape: (n_ev, record_length, 4)
 
-        except Exception as e:
+                if self.radio_amp.isChecked():
+                    metrics = np.max(inverted, axis=1)  # shape: (n_ev, 4)
+                else:
+                    # Multiply ADC*sample sum by 2.0 ns/sample to match axis label "Charge (ADC*ns)"
+                    metrics = np.sum(np.maximum(inverted, 0.0), axis=1) * 2.0
+
+                for ch_id in range(4):
+                    self.hist_data[ch_id].extend(metrics[:, ch_id].tolist())
+
+                self.update_plots()
+
+        except Exception:
             pass
 
     def update_plots(self):
         for ch_id in range(4):
-            if not self.ch_checkboxes[ch_id].isChecked(): continue
+            if not self.ch_checkboxes[ch_id].isChecked():
+                continue
 
             wf = self.latest_waveforms[ch_id]
             if len(wf) > 0:
                 n_ped = min(20, len(wf))
-                baseline = np.mean(wf[:n_ped]) if n_ped > 0 else 0
-                inverted = baseline - wf 
-                
-                x_data = np.arange(len(wf)) * 2.0 
+                baseline = float(np.mean(wf[:n_ped])) if n_ped > 0 else 0.0
+                inverted = baseline - wf.astype(np.float64)
+                x_data = np.arange(len(wf), dtype=np.float64) * 2.0
                 self.curves_wave[ch_id].setData(x_data, inverted)
 
             data_arr = self.hist_data[ch_id]
             if len(data_arr) > 2:
-                y, x = np.histogram(data_arr, bins=100)
-                self.curves_spec[ch_id].setData(x, y)
+                y, x_edges = np.histogram(np.fromiter(data_arr, dtype=np.float64, count=len(data_arr)), bins=100)
+                self.curves_spec[ch_id].setData(x_edges, y)

@@ -6,17 +6,21 @@
 class Fadc500Device {
 private:
     int fSid;
+    bool fIsOpen;
 
 public:
-    Fadc500Device(int sid);
+    explicit Fadc500Device(int sid);
     ~Fadc500Device();
+
+    Fadc500Device(const Fadc500Device&) = delete;
+    Fadc500Device& operator=(const Fadc500Device&) = delete;
 
     void Initialize(FadcBD* bdConfig);
     void StartDAQ();
     void StopDAQ();
-    
-    // 💡 [신규 추가] 좀비 상태 해제 및 하드웨어 완전 세척
-    void ClearAndFlushUSB(); 
+
+    // Drain residual DRAM/FIFO bytes and reset timers before/after DAQ runs
+    void ClearAndFlushUSB();
 
     unsigned int ReadBCOUNT();
     void ReadDATA(unsigned int bcount_kb, unsigned char* dest);

@@ -1,12 +1,14 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =========================================================================
-# NKFADC500 Mini CLI & GUI 환경 변수 등록 스크립트
+# NKFADC500 Mini CLI & GUI Environment Setup Script
+# Usage: source setup.sh
 # =========================================================================
 
-export NKFADC500_ROOT=$(pwd)
-export PATH=$NKFADC500_ROOT/bin:$PATH
+export NKFADC500_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="${NKFADC500_ROOT}/bin:${PATH}"
+export LD_LIBRARY_PATH="${NKFADC500_ROOT}/lib${NKHOME:+:${NKHOME}/lib}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-echo -e "\033[1;32m[SYSTEM] NKFADC500_ROOT 환경변수가 설정되었습니다: $NKFADC500_ROOT\033[0m"
-echo -e "\033[1;36m[SYSTEM] 실행 파일이 PATH에 등록되었습니다. 이제 어디서든 'fadc500_gui'를 실행할 수 있습니다.\033[0m"
-echo -e "\033[1;33m[TIP] 현재 폴더를 데이터/설정 워크스페이스로 사용하려면 다음과 같이 실행하십시오:\033[0m"
-echo -e "\033[1;37m      fadc500_gui .\033[0m"
+echo -e "\033[1;32m[SYSTEM] NKFADC500_ROOT set to: ${NKFADC500_ROOT}\033[0m"
+echo -e "\033[1;36m[SYSTEM] Added ${NKFADC500_ROOT}/bin to PATH and ${NKFADC500_ROOT}/lib to LD_LIBRARY_PATH.\033[0m"
+echo -e "\033[1;33m[TIP] Launch the GUI from anywhere via:\033[0m"
+echo -e "\033[1;37m      fadc500_gui [optional_workspace_dir]\033[0m"

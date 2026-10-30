@@ -13,10 +13,10 @@ public:
     void SetRunNumber(int run) { fRunNumber = run; }
     int  GetRunNumber() const  { return fRunNumber; }
 
-    //  [핵심 최적화] 하드코딩 방지: 500MS/s 장비의 샘플당 시간(2.0 ns) 반환
-    double GetSamplingNs() const { return 2.0; }
+    // Base 500 MS/s clock = 2.0 ns * decimation factor (SAMPLING_RATE: 1=500MS/s, 2=250MS/s, ...)
+    double GetSamplingNs(int boardIdx = 0) const;
 
-    // 메모리 풀 기반 보드 객체 관리
+    // Board configuration pool
     FadcBD* AddFadcBD(int mid);
     FadcBD* GetFadcBD(int index) const;
     FadcBD* FindFadcBD(int mid) const;
@@ -28,7 +28,7 @@ private:
     int fRunNumber;
     TClonesArray* fBoards; //->
 
-    ClassDef(RunInfo, 1)
+    ClassDefOverride(RunInfo, 2)
 };
 
 #endif

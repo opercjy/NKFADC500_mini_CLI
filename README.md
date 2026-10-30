@@ -90,33 +90,25 @@ pip3 install PySide6 pyqtgraph numpy
 
 ```
 
-### Phase 2: 제조사 로우레벨 라이브러리 컴파일 (반드시 `su` 권한 진행)
+### Phase 2: 제조사 로우레벨 라이브러리 컴파일 (자동 빌드 지원 / 수동 `su` 설치 선택)
 
-리눅스 보안 정책상 `sudo`를 사용하면 사용자 환경 변수(ROOT 경로 등)가 초기화되어 ROOT 딕셔너리 컴파일 에러가 발생합니다. 반드시 `su` 명령어로 관리자 계정에 진입한 뒤, 환경 변수를 수동 로드하고 컴파일해야 합니다.
+* **[권장 — 자동 CMake 통합 빌드]** 최신 `CMakeLists.txt`는 시스템에 `/usr/local/notice` (`$NKHOME`)가 사전 설치되어 있지 않더라도, 저장소 내부의 `notice_nkfadc500_4/notice/src/` C 소스(`libnkusb.so`, `libusb3com.so`, `libNoticeNKFADC500.so`)를 자동으로 컴파일하여 `./lib`에 배치하고 상대 `RPATH` (`$ORIGIN/../lib`)로 연결합니다. 별도의 `root`(`su`) 권한 없이 바로 **Phase 3**으로 진행할 수 있습니다.
+* **[선택 — 시스템 전역 `/usr/local/notice` 수동 설치]** 시스템 전역 경로에 설치하려는 경우, `sudo` 대신 `su`로 진입해 환경 변수를 로드한 뒤 빌드하십시오:
 
 ```bash
-# 1. 관리자(root) 계정으로 전환
+# (선택 사항) 시스템 전역 /usr/local/notice 수동 설치 시에만 수행
 su
-
-# 2. 필수 환경 변수 로드 (본인 시스템 경로에 맞게 수정)
-mkdir /usr/local/include
-mkdir /usr/local/lib
+mkdir -p /usr/local/include /usr/local/lib
 source /usr/local/notice/notice_env.sh
 source /usr/local/bin/thisroot.sh
 
-# 3. Layer 1 ~ Layer 3 일괄 빌드 및 설치
 cd /usr/local/notice/src/nkusb/nkusb; make clean; make install
 cd ../nkusbroot; make clean; make install
-
 cd ../../usb3com/usb3com; make clean; make install
 cd ../usb3comroot; make clean; make install
-
 cd ../../nkfadc500/nkfadc500; make clean; make install
 cd ../nkfadc500root; make clean; make install
-
-# 4. 설치 완료 후 관리자 계정 종료
 exit
-
 ```
 
 ### Phase 3: 메인 애플리케이션 빌드 및 실행 (일반 유저)
@@ -125,7 +117,7 @@ exit
 # 프로젝트 최상위 폴더에서 실행
 mkdir -p build && cd build
 cmake ..
-make -j4
+make -j$(nproc)
 
 # ---------------------------------------------------
 # [실행 방법 1] GUI 마스터 콘솔 실행 (권장)
@@ -136,12 +128,13 @@ cd ..
 # ---------------------------------------------------
 # [실행 방법 2] CLI 단독 실행 (터미널/스크립트 환경용)
 # ---------------------------------------------------
-# 1) 프론트엔드 수집 가동
+# 1) 프론트엔드 수집 가동 (--thr 옵션으로 스캔 임계값 동적 오버라이드 가능)
 ./bin/frontend_nkfadc500 -f config/settings.cfg -o data/run_0001.dat
 
-# 2) 수집 완료 후 ROOT 변환 (오프라인)
-./bin/production_nkfadc_500 -f config/settings.cfg -d data/ -p run_0001
-
+# 2) 수집 완료 후 ROOT 변환 (동일 경로의 run_0001.cfg 백업 설정을 자동 감지, -w: 파형 포함)
+./bin/production_nkfadc_500 data/run_0001.dat -w
+# 또는 디렉토리/프리픽스 지정 방식:
+./bin/production_nkfadc_500 -f config/settings.cfg --dir data/ -p run_0001
 ```
 
 ## 5. 개발 히스토리 및 로드맵 (Development History)
@@ -157,7 +150,7 @@ cd ..
 
 ## 6. 교육 및 연구용 고급 오프라인 분석 파이프라인 (Advanced Educational Analysis)
 
-본 시스템은 단순한 데이터 수집을 넘어, 입자물리학 데이터를 분석하고 검출기의 특성을 파악하는 정석적인 방법론을 제공합니다. 데이터는 교육 및 분석에 최적화된 플랫 트리(Flat Tree) 구조로 저장되며, NKFADC500 Mini 장비의 하드웨어 스펙(12-bit 해상도, 5Vpp 동적 범위, 500MS/s, 50Ohm 임피던스)을 반영하여 ADC 카운트를 순수 물리량(pC)으로 정밀 환산(0.048828125 pC/ADC)하는 로직과 `RecordLength` 동적 스케일링이 완벽하게 적용되어 있습니다.
+본 시스템은 단순한 데이터 수집을 넘어, 입자물리학 데이터를 분석하고 검출기의 특성을 파악하는 정석적인 방법론을 제공합니다. 데이터는 교육 및 분석에 최적화된 플랫 트리(`PROD`) 구조로 저장되며(`Baseline_Ch*`, `BaselineRMS_Ch*`, `Amplitude_Ch*`, `Charge_Ch*`, `PeakTime_Ch*`, `Qtotal_Ch*`, `Qtail_Ch*`, `PsdRatio_Ch*`, 64-bit `TriggerTime`/`LocalTriggerTime`), NKFADC500 Mini 장비의 공칭 하드웨어 스펙(12-bit 4096 해상도, `2.5 Vpp` 동적 범위, `500 MS/s` [`2.0 ns/sample`], `50 Ω` 입력 임피던스)을 반영하여 ADC 카운트를 순수 물리량(`1 ADC = 0.61035 mV`, `1 ADC·sample = 0.0244140625 pC`; 외부 감쇠기 등 다른 동적 범위 사용 시 `vpp` 인자로 조정 가능)으로 정밀 환산하는 로직과 `RecordLength` / `SamplingNs` 동적 스케일링이 완벽하게 적용되어 있습니다.
 
 ### 제공되는 핵심 분석 스크립트
 
