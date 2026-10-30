@@ -30,6 +30,9 @@ public:
     void SetPTRIG(int val)    { fPTRIG = val; }
     int  GetPTRIG() const     { return fPTRIG; }
 
+    void SetZEROSUP(int val)  { fZEROSUP = val; }
+    int  GetZEROSUP() const   { return fZEROSUP; }
+
     int  NCHANNEL() const     { return 4; }
 
     // Channel Specific
@@ -77,6 +80,7 @@ private:
     int fTLT;
     int fTRIGEN;
     int fPTRIG;
+    int fZEROSUP;
 
     int fTHR[4];       
     int fDACOFF[4];    
@@ -91,7 +95,7 @@ private:
     int fPCI[4];
     int fPWT[4];
 
-    ClassDef(FadcBD, 2) // 버전 2로 업데이트
+    ClassDef(FadcBD, 3)
 };
 
 #endif

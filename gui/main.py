@@ -6,6 +6,13 @@ GUI_DIR = os.path.dirname(os.path.abspath(__file__))
 if GUI_DIR not in sys.path:
     sys.path.insert(0, GUI_DIR)
 
+import PySide6
+
+if not os.environ.get("QT_PLUGIN_PATH"):
+    _qt_plugins = os.path.join(os.path.dirname(PySide6.__file__), "Qt", "plugins")
+    if os.path.isdir(_qt_plugins):
+        os.environ["QT_PLUGIN_PATH"] = _qt_plugins
+
 from PySide6.QtWidgets import QApplication
 from windows.MainWindow import MainWindow
 

@@ -13,13 +13,13 @@ Notice Korea의 FADC500 Mini (500MS/s, 12-bit, 4-Channel) 보드를 제어하고
 
 본 시스템은 수집(Online), 감시(Monitoring), 분석(Offline)의 병목을 완벽히 분리한 하이브리드 아키텍처를 가집니다.
 
-* **[Core 1] Frontend (`frontend_nkfadc500`) : 안정성 검증 완료 (Stable)**
-* 하드웨어 제어 및 USB 3.0(SuperSpeed) 통신 전담.
+* **[Core 1] Frontend (`frontend_nkfadc500`) : 안정성 및 벤더 SDK 정합성 검증 완료 (Stable)**
+* 하드웨어 제어 및 USB 3.0(SuperSpeed) 통신 전담 (`NoticeFadc500Spec.hh` 단일 하드웨어 규격 헤더 기반).
 * 연산 오버헤드를 없애기 위해 복잡한 파싱 없이 순수 바이너리(`.dat`) 파일로 하드디스크에 고속 덤프.
 * [핵심 기능]
-* 2MB Deadlock 완전 파괴: 하드웨어 FIFO 버퍼 잔여물을 100% Drain(추출)하여 극한의 노이즈 상황에서도 뻗지 않는 수집 지원.
-* Fail-Fast & Auto-Recovery: 하드웨어 미연결 시 즉각 종료, USB Flooding(과부하) 방어, 좀비 락(Error -7/-9) 자동 세척(Flush) 로직 탑재.
-* 멀티스레드 큐잉(Producer-Consumer): USB 패킷 수집 스레드와 디스크 I/O 스레드를 완벽히 분리하여 병목(Backpressure) 현상 극복.
+* 64MB DRAM 32-bit `BCOUNT` 무결성 & FX3 Burst 정렬: 벤더 SDK(`NoticeNKFADC500.c`, `usb3com.c`, `nkfadc500_4_test.C`) 대조를 통해 `65,536 KB (0x10000)` 16-bit 마스킹 랩어라운드 버그를 원천 차단하고, `128 KB` / `16 KB` FX3 Slave FIFO 버스트 및 이벤트 경계 정렬 스트리밍 + 종료 후 잔여 완결 패킷(Post-Stop Tail Drain) 회수를 보장.
+* Safe ADC/DRAM Alignment & Readback 검증: 벤더 `NKFADC500_ADCALIGN_500`의 `count == 0` 0-나눗셈(`SIGFPE`) 방어, `DRAMON` 무한 루프 타임아웃 방어, `CW + DLY <= 31,992 ns` 5-bit coarse 딜레이 오버플로우 방지, `TMODE (0x0..0xF)` 및 Peak-Sum 26-bit `THR (1..67,108,863)` 순서 무관 교차 검증, 초기화 직후 하드웨어 레지스터·페데스탈(`NKFADC500read_PED`) 자동 판독 검증 탑재.
+* 멀티스레드 큐잉(Producer-Consumer): USB 패킷 수집 스레드와 디스크 I/O 스레드를 완벽히 분리하여 병목(Backpressure) 현상 극복 및 `-n <maxEvents>` 정확 패킷 경계 컷오프 지원.
 
 
 

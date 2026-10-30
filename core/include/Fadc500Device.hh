@@ -8,6 +8,11 @@ private:
     int fSid;
     bool fIsOpen;
 
+    bool EnableDramWithTimeout(bool enable);
+    void SafeAlignADC500();
+    bool SafeAlignDRAM();
+    void VerifyRegistersAndLogPedestals(const FadcBD* bdConfig);
+
 public:
     explicit Fadc500Device(int sid);
     ~Fadc500Device();
@@ -17,6 +22,7 @@ public:
 
     void Initialize(FadcBD* bdConfig);
     void StartDAQ();
+    void StopAcquisitionOnly();
     void StopDAQ();
 
     // Drain residual DRAM/FIFO bytes and reset timers before/after DAQ runs

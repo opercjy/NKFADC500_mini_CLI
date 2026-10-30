@@ -12,6 +12,7 @@
 #include "BinaryDaqManager.hh"
 #include "ConfigParser.hh"
 #include "ELog.hh"
+#include "NoticeFadc500Spec.hh"
 #include "RunInfo.hh"
 #include "TString.h"
 
@@ -33,7 +34,7 @@ void PrintUsage(const char* progName) {
     std::cout << "  -o <file>     : Output raw data file (default: data/test_noise.dat)\n";
     std::cout << "  -n <events>   : Stop after N events (default: 0 = infinite)\n";
     std::cout << "  -t <sec>      : Stop after T seconds (default: 0 = infinite)\n";
-    std::cout << "  --thr <adc>   : Override hardware trigger threshold THR (0..4095) on all channels\n";
+    std::cout << "  --thr <adc>   : Override hardware trigger threshold THR (1..4095 height, 1..67108863 peak-sum)\n";
     std::cout << "  -h, --help    : Print this help message\n";
     std::cout << "\033[1;36m======================================================================\033[0m\n\n";
 }
@@ -63,7 +64,7 @@ int main(int argc, char** argv) {
             case 'o': outFile = optarg; break;
             case 'n': maxEvents = std::max(0, std::atoi(optarg)); break;
             case 't': maxTime = std::max(0, std::atoi(optarg)); break;
-            case 'T': thrOverride = std::clamp(std::atoi(optarg), 0, 4095); break;
+            case 'T': thrOverride = std::clamp(std::atoi(optarg), 0, NoticeFadc500Spec::kMaxThrPeakSum); break;
             case 'h': PrintUsage(argv[0]); return 0;
             default:  PrintUsage(argv[0]); return 1;
         }
@@ -88,15 +89,24 @@ int main(int argc, char** argv) {
     }
 
     // Apply optional CLI threshold override (used by GUI Threshold Auto Scan)
+    int appliedThrLog = thrOverride;
     if (thrOverride >= 0) {
+        if (thrOverride < NoticeFadc500Spec::kMinThrHeight) {
+            ELog::Print(ELog::WARNING, "--thr=0 causes continuous noise trigger lockup; clamped to 1.");
+        }
         for (int b = 0; b < runInfo.GetNFadcBD(); ++b) {
             FadcBD* bd = runInfo.GetFadcBD(b);
             if (!bd) continue;
             for (int ch = 0; ch < bd->NCHANNEL(); ++ch) {
-                bd->SetTHR(ch, thrOverride);
+                const int maxThr = NoticeFadc500Spec::IsPeakSumTriggerMode(bd->GetTMODE(ch))
+                    ? NoticeFadc500Spec::kMaxThrPeakSum
+                    : NoticeFadc500Spec::kMaxThrHeight;
+                const int clamped = std::clamp(thrOverride, NoticeFadc500Spec::kMinThrHeight, maxThr);
+                bd->SetTHR(ch, clamped);
+                appliedThrLog = clamped;
             }
         }
-        ELog::Print(ELog::INFO, Form("Applied CLI threshold override: THR = %d ADC on all channels.", thrOverride));
+        ELog::Print(ELog::INFO, Form("Applied CLI threshold override: THR = %d on all channels.", appliedThrLog));
     }
 
     // Ensure output parent directory exists and safely back up companion .cfg next to output .dat
@@ -110,7 +120,7 @@ int main(int argc, char** argv) {
         std::filesystem::copy_file(configFile, backupCfgPath, std::filesystem::copy_options::overwrite_existing);
         if (thrOverride >= 0) {
             std::ofstream ofs(backupCfgPath, std::ios::app);
-            ofs << "\n# CLI/Scan Threshold Override\nTHR " << thrOverride << "\n";
+            ofs << "\n# CLI/Scan Threshold Override\nTHR " << appliedThrLog << "\n";
         }
         ELog::Print(ELog::INFO, Form("Configuration backed up to: %s", backupCfgPath.string().c_str()));
     } catch (const std::exception& e) {

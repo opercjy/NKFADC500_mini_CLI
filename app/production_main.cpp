@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #include "ELog.hh"
+#include "NoticeFadc500Spec.hh"
 #include "TApplication.h"
 #include "TCanvas.h"
 #include "TFile.h"
@@ -52,93 +54,6 @@ public:
     }
 };
 
-struct ProductionConfig {
-    double dt_ns = 2.0;                         // 2.0 ns * SAMPLING_RATE (500 MS/s default)
-    std::array<double, 4> delay_ns = {400.0, 400.0, 400.0, 400.0};
-    std::array<int, 4> polarity = {0, 0, 0, 0}; // 0: negative PMT pulse (baseline - raw), 1: positive (raw - baseline)
-    int config_run_number = 0;
-    std::string loaded_path;
-};
-
-// Locate companion <input_stem>.cfg first, then explicit -f <cfg>, then repo config/settings.cfg
-std::string ResolveConfigPath(const std::string& explicitCfg, const std::string& inputFile, const char* argv0) {
-    if (!explicitCfg.empty() && std::filesystem::exists(explicitCfg)) {
-        return explicitCfg;
-    }
-    std::filesystem::path companion = std::filesystem::path(inputFile);
-    companion.replace_extension(".cfg");
-    if (std::filesystem::exists(companion)) {
-        return companion.string();
-    }
-    if (std::filesystem::exists("config/settings.cfg")) {
-        return "config/settings.cfg";
-    }
-    if (std::filesystem::exists("../config/settings.cfg")) {
-        return "../config/settings.cfg";
-    }
-    if (argv0) {
-        std::error_code ec;
-        auto exeDir = std::filesystem::weakly_canonical(std::filesystem::path(argv0), ec).parent_path();
-        auto candidate = exeDir / "../config/settings.cfg";
-        if (std::filesystem::exists(candidate)) {
-            return candidate.string();
-        }
-    }
-    return explicitCfg;
-}
-
-ProductionConfig LoadProductionConfig(const std::string& configPath) {
-    ProductionConfig cfg;
-    if (configPath.empty()) return cfg;
-
-    std::ifstream in(configPath);
-    if (!in.is_open()) {
-        ELog::Print(ELog::WARNING, "Configuration file not found (" + configPath + "). Using defaults (DLY=400 ns, POL=0, 500 MS/s).");
-        return cfg;
-    }
-    cfg.loaded_path = configPath;
-
-    std::string line;
-    while (std::getline(in, line)) {
-        size_t hashPos = line.find('#');
-        if (hashPos != std::string::npos) {
-            line = line.substr(0, hashPos);
-        }
-        std::istringstream iss(line);
-        std::string key;
-        if (!(iss >> key)) continue;
-
-        if (key == "RUN_NUMBER") {
-            int r = 0;
-            if (iss >> r) cfg.config_run_number = r;
-        } else if (key == "SAMPLING_RATE") {
-            int dsr = 1;
-            if (iss >> dsr && dsr >= 1 && dsr <= 32) {
-                cfg.dt_ns = 2.0 * static_cast<double>(dsr);
-            }
-        } else if (key == "DLY") {
-            std::vector<double> vals;
-            double v = 0.0;
-            while (iss >> v) vals.push_back(std::max(0.0, v));
-            if (vals.size() == 1) {
-                cfg.delay_ns.fill(vals[0]);
-            } else {
-                for (size_t i = 0; i < std::min<size_t>(4, vals.size()); ++i) cfg.delay_ns[i] = vals[i];
-            }
-        } else if (key == "POL") {
-            std::vector<int> vals;
-            int v = 0;
-            while (iss >> v) vals.push_back(std::clamp(v, 0, 1));
-            if (vals.size() == 1) {
-                cfg.polarity.fill(vals[0]);
-            } else {
-                for (size_t i = 0; i < std::min<size_t>(4, vals.size()); ++i) cfg.polarity[i] = vals[i];
-            }
-        }
-    }
-    return cfg;
-}
-
 int InferRunNumberFromFilename(const std::string& filepath, int fallbackRun) {
     const std::string stem = std::filesystem::path(filepath).stem().string();
     // Match <prefix>_<run>, <prefix>_<run>_<subrun>, or <prefix>_<run>_thr<N>
@@ -158,78 +73,59 @@ int InferRunNumberFromFilename(const std::string& filepath, int fallbackRun) {
     return last_num;
 }
 
-// Safe 64-bit decoding of Notice NKFADC500_4 128-byte 4-channel interleaved packet header
-struct DecodedPacketHeader {
-    uint32_t data_length = 0;       // Per-channel byte length (RL * 128); total packet = data_length * 4
-    uint32_t trigger_type = 0;
-    uint32_t tcb_trig_num = 0;      // Global TCB trigger number (bytes 7..10 * 4 = 28, 32, 36, 40)
-    uint32_t local_trig_num = 0;    // Local FPGA trigger number (bytes 17..20 * 4 = 68, 72, 76, 80)
-    uint32_t trigger_pattern = 0;   // Local trigger pattern bitmask (bytes 21..24 * 4 = 84, 88, 92, 96)
-    uint64_t tcb_trig_time_ns = 0;  // External TCB timestamp (24-bit coarse * 1000 ns + 8-bit fine * 8 ns)
-    uint64_t local_trig_time_ns = 0;// Local FPGA 48-bit coarse * 1000 ns + 8-bit fine * 8 ns (never overflows!)
-    uint64_t best_trig_time_ns = 0; // Uses local_trig_time_ns when standalone (tcb == 0), else local or tcb
-    std::array<int, 4> hw_pedestal = {0, 0, 0, 0};
-};
+// Attempt bounded mid-stream resynchronization (up to 1 MB) when a corrupted block is encountered
+bool TryResyncToNextHeader(
+    FILE* fp,
+    size_t totalFileBytes,
+    uint32_t expectedDataLen,
+    unsigned char (&outHeader)[128],
+    size_t& ioCurrentBytes)
+{
+    const long corruptStart = std::ftell(fp) - 128L;
+    if (corruptStart < 0) return false;
 
-inline DecodedPacketHeader DecodeHeader128(const unsigned char* h) {
-    DecodedPacketHeader d;
-    d.data_length =
-        static_cast<uint32_t>(h[0]) |
-        (static_cast<uint32_t>(h[4]) << 8) |
-        (static_cast<uint32_t>(h[8]) << 16) |
-        (static_cast<uint32_t>(h[12]) << 24);
+    constexpr size_t kMaxScanBytes = 1048576ULL;
+    const size_t avail = (static_cast<size_t>(corruptStart) < totalFileBytes)
+        ? std::min(kMaxScanBytes, totalFileBytes - static_cast<size_t>(corruptStart))
+        : 0ULL;
+    if (avail <= 129ULL) return false;
 
-    for (int ch = 0; ch < 4; ++ch) {
-        d.hw_pedestal[ch] =
-            static_cast<int>(h[16 + ch]) |
-            (static_cast<int>(h[20 + ch]) << 8);
+    std::vector<unsigned char> scanBuf(avail);
+    std::fseek(fp, corruptStart, SEEK_SET);
+    const size_t nRead = std::fread(scanBuf.data(), 1, avail, fp);
+    if (nRead <= 129ULL) return false;
+
+    for (size_t off = 1; off + 128ULL <= nRead; ++off) {
+        const auto cand = NoticeFadc500Spec::DecodeHeader128(scanBuf.data() + off);
+        if (!cand.valid_geometry) continue;
+        // Require strict hardware channel tags {1, 2, 3, 4} to eliminate false positives
+        if (!(cand.channel_ids[0] == 1 && cand.channel_ids[1] == 2 &&
+              cand.channel_ids[2] == 3 && cand.channel_ids[3] == 4)) {
+            continue;
+        }
+        if (expectedDataLen > 0U && cand.data_length != expectedDataLen) continue;
+
+        const size_t pktBytes = static_cast<size_t>(cand.data_length) * 4ULL;
+        const size_t nextPacketFilePos = static_cast<size_t>(corruptStart) + off + pktBytes;
+        if (nextPacketFilePos > totalFileBytes) continue;
+
+        if (nextPacketFilePos < totalFileBytes) {
+            if (off + pktBytes + 128ULL <= nRead) {
+                const auto nextCand = NoticeFadc500Spec::DecodeHeader128(scanBuf.data() + off + pktBytes);
+                if (!nextCand.valid_geometry || !nextCand.valid_channel_tags) continue;
+            }
+        }
+
+        std::memcpy(outHeader, scanBuf.data() + off, 128);
+        const long resumedAfterHdr = corruptStart + static_cast<long>(off) + 128L;
+        std::fseek(fp, resumedAfterHdr, SEEK_SET);
+        ioCurrentBytes = static_cast<size_t>(resumedAfterHdr);
+        ELog::Print(ELog::WARNING,
+            Form("Resynchronized binary stream after skipping %zu corrupted bytes at offset %ld.",
+                 off, corruptStart));
+        return true;
     }
-
-    d.trigger_type = static_cast<uint32_t>(h[24] & 0x0F);
-
-    // Global TCB trigger number (bytes 7..10 * 4 = 28, 32, 36, 40)
-    d.tcb_trig_num =
-        static_cast<uint32_t>(h[28]) |
-        (static_cast<uint32_t>(h[32]) << 8) |
-        (static_cast<uint32_t>(h[36]) << 16) |
-        (static_cast<uint32_t>(h[40]) << 24);
-
-    // TCB trigger time (bytes 11..14 * 4 = 44, 48, 52, 56) using 64-bit unsigned shifts (prevents 2.14s int32 overflow!)
-    const uint64_t tcb_fine_ns = static_cast<uint64_t>(h[44]) * 8ULL;
-    const uint64_t tcb_coarse_us =
-        static_cast<uint64_t>(h[48]) |
-        (static_cast<uint64_t>(h[52]) << 8) |
-        (static_cast<uint64_t>(h[56]) << 16);
-    d.tcb_trig_time_ns = tcb_fine_ns + tcb_coarse_us * 1000ULL;
-
-    // Local FPGA trigger number (bytes 17..20 * 4 = 68, 72, 76, 80 per Notice NKFADC500_4 spec)
-    d.local_trig_num =
-        static_cast<uint32_t>(h[68]) |
-        (static_cast<uint32_t>(h[72]) << 8) |
-        (static_cast<uint32_t>(h[76]) << 16) |
-        (static_cast<uint32_t>(h[80]) << 24);
-
-    // Local trigger pattern bitmask (bytes 21..24 * 4 = 84, 88, 92, 96)
-    d.trigger_pattern =
-        static_cast<uint32_t>(h[84]) |
-        (static_cast<uint32_t>(h[88]) << 8) |
-        (static_cast<uint32_t>(h[92]) << 16) |
-        (static_cast<uint32_t>(h[96]) << 24);
-
-    // Local 48-bit FPGA starting timestamp (bytes 25..31 * 4 = 100, 104, 108, 112, 116, 120, 124)
-    const uint64_t loc_fine_ns = static_cast<uint64_t>(h[100]) * 8ULL;
-    const uint64_t loc_coarse_us =
-        static_cast<uint64_t>(h[104]) |
-        (static_cast<uint64_t>(h[108]) << 8) |
-        (static_cast<uint64_t>(h[112]) << 16) |
-        (static_cast<uint64_t>(h[116]) << 24) |
-        (static_cast<uint64_t>(h[120]) << 32) |
-        (static_cast<uint64_t>(h[124]) << 40);
-    d.local_trig_time_ns = loc_fine_ns + loc_coarse_us * 1000ULL;
-
-    // Prefer 48-bit monotonic local FPGA clock when non-zero (avoids 16.77 s 24-bit TCB wrap in standalone mini mode)
-    d.best_trig_time_ns = (d.local_trig_time_ns > 0ULL) ? d.local_trig_time_ns : d.tcb_trig_time_ns;
-    return d;
+    return false;
 }
 
 bool kbhit() {
@@ -333,8 +229,15 @@ int main(int argc, char** argv) {
     std::rewind(fp);
     const double totalMB = static_cast<double>(totalBytes) / 1048576.0;
 
-    const std::string resolvedCfgPath = ResolveConfigPath(explicitConfig, inputFile, argv[0]);
-    const ProductionConfig prodCfg = LoadProductionConfig(resolvedCfgPath);
+    const std::string resolvedCfgPath =
+        NoticeFadc500Spec::ResolveCompanionConfigPath(explicitConfig, inputFile, argv[0]);
+    const NoticeFadc500Spec::StreamDecodeConfig prodCfg =
+        NoticeFadc500Spec::LoadStreamDecodeConfig(resolvedCfgPath);
+    if (prodCfg.loaded_path.empty() && !resolvedCfgPath.empty()) {
+        ELog::Print(ELog::WARNING,
+            "Configuration file not found (" + resolvedCfgPath + "). Using defaults (DLY=400 ns, POL=0, 500 MS/s).");
+    }
+
     const double dt_ns = prodCfg.dt_ns;
     const int resolvedRunNumber = (explicitRunNumber >= 0)
         ? explicitRunNumber
@@ -360,7 +263,7 @@ int main(int argc, char** argv) {
     std::cout << "       [Config Used]  " << (prodCfg.loaded_path.empty() ? "Built-in Defaults" : prodCfg.loaded_path) << "\n";
     std::cout << "       [Run / Clock]  Run " << resolvedRunNumber << " | dt = " << std::setprecision(1) << dt_ns << " ns/sample\n";
     std::cout << "       [Process Mode] " << modeStr << "\n";
-    std::cout << "       [Trig. Delay]  Ch0=" << prodCfg.delay_ns[0] << " ns (Base. Window: " << (prodCfg.delay_ns[0] * 0.40) << " ns, POL=" << prodCfg.polarity[0] << ")\n";
+    std::cout << "       [Trig. Delay]  Ch0=" << prodCfg.delay_ns[0] << " ns (POL=" << prodCfg.polarity[0] << ")\n";
     std::cout << "\033[1;36m========================================================\033[0m\n\n";
 
     // =========================================================================
@@ -382,6 +285,8 @@ int main(int argc, char** argv) {
         unsigned int localTriggerNumber = 0;
         unsigned int triggerPattern = 0;
         unsigned int triggerType = 0;
+        unsigned int triggerDestination = 0;
+        unsigned int moduleID = 0;
         int runNumber = resolvedRunNumber;
         int recordLength = 0;
         double samplingNs = dt_ns;
@@ -403,6 +308,8 @@ int main(int argc, char** argv) {
         tree->Branch("TriggerNumber", &localTriggerNumber, "TriggerNumber/i");
         tree->Branch("TriggerPattern", &triggerPattern, "TriggerPattern/i");
         tree->Branch("TriggerType", &triggerType, "TriggerType/i");
+        tree->Branch("TriggerDestination", &triggerDestination, "TriggerDestination/i");
+        tree->Branch("ModuleID", &moduleID, "ModuleID/i");
         tree->Branch("RunNumber", &runNumber, "RunNumber/I");
         tree->Branch("RecordLength", &recordLength, "RecordLength/I");
         tree->Branch("SamplingNs", &samplingNs, "SamplingNs/D");
@@ -432,11 +339,12 @@ int main(int argc, char** argv) {
         for (int ch = 0; ch < 4; ++ch) rawWave[ch].reserve(2048);
 
         // PSD integration offsets around peak index ([-10 ns, +120 ns] total; [+16 ns, +120 ns] tail)
-        const int psdPrePts  = std::max(1, static_cast<int>(std::llround(10.0 / dt_ns)));
+        const int psdPrePts       = std::max(1, static_cast<int>(std::llround(10.0 / dt_ns)));
         const int psdTailStartPts = std::max(1, static_cast<int>(std::llround(16.0 / dt_ns)));
-        const int psdEndPts  = std::max(psdTailStartPts + 1, static_cast<int>(std::llround(120.0 / dt_ns)));
+        const int psdEndPts       = std::max(psdTailStartPts + 1, static_cast<int>(std::llround(120.0 / dt_ns)));
 
         size_t currentBytes = 0;
+        uint32_t lockedDataLength = 0;
         auto start_time = std::chrono::steady_clock::now();
         auto ui_timer = start_time;
 
@@ -444,12 +352,20 @@ int main(int argc, char** argv) {
 
         while (std::fread(header, 1, 128, fp) == 128) {
             currentBytes += 128;
-            const DecodedPacketHeader hdr = DecodeHeader128(header);
+            NoticeFadc500Spec::DecodedPacketHeader hdr = NoticeFadc500Spec::DecodeHeader128(header);
 
-            if (hdr.data_length <= 32U || hdr.data_length > 100000000U || ((hdr.data_length - 32U) % 2U != 0U)) {
-                ELog::Print(ELog::WARNING, Form("Corrupted header detected at byte %zu (Length: %u). Aborting loop safely.",
-                                                currentBytes - 128, hdr.data_length));
-                break;
+            if (!hdr.valid_geometry || !hdr.valid_channel_tags) {
+                if (TryResyncToNextHeader(fp, totalBytes, lockedDataLength, header, currentBytes)) {
+                    hdr = NoticeFadc500Spec::DecodeHeader128(header);
+                } else {
+                    ELog::Print(ELog::WARNING,
+                        Form("Corrupted header detected at byte %zu (Length: %u) with no valid resync header. Stopping safely.",
+                             currentBytes - 128, hdr.data_length));
+                    break;
+                }
+            }
+            if (lockedDataLength == 0U) {
+                lockedDataLength = hdr.data_length;
             }
 
             triggerTime = static_cast<ULong64_t>(hdr.best_trig_time_ns);
@@ -457,10 +373,33 @@ int main(int argc, char** argv) {
             localTriggerNumber = (hdr.local_trig_num > 0U) ? hdr.local_trig_num : hdr.tcb_trig_num;
             triggerPattern = hdr.trigger_pattern;
             triggerType = hdr.trigger_type;
+            triggerDestination = hdr.trigger_destination;
+            moduleID = static_cast<unsigned int>(hdr.mid);
             for (int ch = 0; ch < 4; ++ch) hwPedestal[ch] = hdr.hw_pedestal[ch];
 
             recordLength = static_cast<int>((hdr.data_length - 32U) / 2U);
             const size_t payload_bytes = static_cast<size_t>(recordLength) * 8ULL;
+
+            if (recordLength == 0) {
+                // Zero-suppressed header-only packet (NKFADC500write_ZEROSUP enabled, data_length == 32)
+                for (int ch = 0; ch < 4; ++ch) {
+                    baseline[ch] = static_cast<double>(hdr.hw_pedestal[ch]);
+                    baselineRMS[ch] = 0.0;
+                    amplitude[ch] = 0.0;
+                    charge[ch] = 0.0;
+                    peakTime[ch] = 0.0;
+                    qTotal[ch] = 0.0;
+                    qTail[ch] = 0.0;
+                    psdRatio[ch] = 0.0;
+                    if (saveWaveform) {
+                        wTime[ch].clear();
+                        wDrop[ch].clear();
+                    }
+                }
+                tree->Fill();
+                eventID++;
+                continue;
+            }
 
             payload.resize(payload_bytes);
             if (std::fread(payload.data(), 1, payload_bytes, fp) != payload_bytes) break;
@@ -484,10 +423,8 @@ int main(int argc, char** argv) {
             }
 
             for (int ch = 0; ch < 4; ++ch) {
-                const int nPed = std::clamp(
-                    static_cast<int>((prodCfg.delay_ns[ch] / dt_ns) * 0.40),
-                    std::min(10, recordLength),
-                    recordLength);
+                const int nPed = NoticeFadc500Spec::ComputeBaselineSamples(
+                    prodCfg.delay_ns[ch], dt_ns, recordLength);
                 const int pol = prodCfg.polarity[ch];
                 const uint16_t* wf = rawWave[ch].data();
 
@@ -630,8 +567,8 @@ int main(int argc, char** argv) {
     std::cout << "\033[1;35m========================================================\033[0m\n\n";
 
     while (std::fread(header, 1, 128, fp) == 128) {
-        const DecodedPacketHeader hdr = DecodeHeader128(header);
-        if (hdr.data_length <= 32U || hdr.data_length > 100000000U || ((hdr.data_length - 32U) % 2U != 0U)) {
+        const auto hdr = NoticeFadc500Spec::DecodeHeader128(header);
+        if (!hdr.valid_geometry || !hdr.valid_channel_tags) {
             ELog::Print(ELog::WARNING, "Corrupted header detected. Aborting.");
             break;
         }
@@ -640,8 +577,16 @@ int main(int argc, char** argv) {
         const long payload_bytes = static_cast<long>(recordLength) * 8L;
 
         if (eventID < targetEventID) {
-            if (std::fseek(fp, payload_bytes, SEEK_CUR) != 0) break;
+            if (payload_bytes > 0 && std::fseek(fp, payload_bytes, SEEK_CUR) != 0) break;
             eventID++;
+            continue;
+        }
+
+        if (recordLength == 0) {
+            std::cout << "\n\033[1;36m=== Event " << eventID << " (Zero-Suppressed Header Only, TrigTime: "
+                      << hdr.best_trig_time_ns << " ns) ===\033[0m\n";
+            eventID++;
+            targetEventID = eventID;
             continue;
         }
 
@@ -660,10 +605,8 @@ int main(int argc, char** argv) {
         std::cout << "\n\033[1;36m=== Event " << eventID << " (TrigTime: " << hdr.best_trig_time_ns << " ns) ===\033[0m\n";
 
         for (int i = 0; i < 4; i++) {
-            const int nPed = std::clamp(
-                static_cast<int>((prodCfg.delay_ns[i] / dt_ns) * 0.40),
-                std::min(10, recordLength),
-                recordLength);
+            const int nPed = NoticeFadc500Spec::ComputeBaselineSamples(
+                prodCfg.delay_ns[i], dt_ns, recordLength);
             const int pol = prodCfg.polarity[i];
 
             hWave[i]->Reset();

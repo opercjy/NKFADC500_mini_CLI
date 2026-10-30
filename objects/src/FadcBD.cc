@@ -2,12 +2,13 @@
 
 ClassImp(FadcBD)
 
-FadcBD::FadcBD() : fMID(-1), fSAMPLING(1), fRL(8), fPRESCALE(1), fTLT(0xFFFE), fTRIGEN(15), fPTRIG(0) {
+FadcBD::FadcBD()
+    : fMID(-1), fSAMPLING(1), fRL(8), fPRESCALE(1), fTLT(0xFFFE), fTRIGEN(15), fPTRIG(0), fZEROSUP(0) {
     for (int i = 0; i < 4; i++) {
-        fTHR[i] = 0;
-        fDACOFF[i] = 0;
+        fTHR[i] = 50;
+        fDACOFF[i] = 3500;
         fPOL[i] = 0;
-        fDLY[i] = 0;
+        fDLY[i] = 200;
         fCW[i] = 1000;
         fAMODE[i] = 0;
         fTMODE[i] = 1;

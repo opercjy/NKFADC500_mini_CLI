@@ -1,6 +1,7 @@
 #include "BinaryDaqManager.hh"
-#include "Fadc500Device.hh"
 #include "ELog.hh"
+#include "Fadc500Device.hh"
+#include "NoticeFadc500Spec.hh"
 
 #include <algorithm>
 #include <chrono>
@@ -20,6 +21,12 @@ std::string FormatTimestamp(std::time_t t) {
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm_buf);
     return std::string(buf);
+}
+
+size_t ExpectedEventBytes(const FadcBD* bd) {
+    if (!bd) return 4096ULL;
+    if (bd->GetZEROSUP() != 0) return 128ULL;
+    return static_cast<size_t>(std::max(1, bd->GetRL())) * 512ULL;
 }
 } // namespace
 
@@ -60,18 +67,20 @@ void BinaryDaqManager::Start(const std::string& outFileName, int maxEvents, int 
     std::time_t start_time_t = std::chrono::system_clock::to_time_t(now);
 
     FadcBD* bd = fRunInfo->GetFadcBD(0);
-    const size_t expected_evt_bytes = static_cast<size_t>(std::max(1, bd->GetRL())) * 512ULL;
+    const size_t expected_evt_bytes = ExpectedEventBytes(bd);
 
     std::cout << "\n\033[1;36m========================================================\033[0m\n";
     std::cout << "\033[1;32m       NKFADC500 Mini Binary DAQ is RUNNING\033[0m\n";
     std::cout << "       [Start Time]  " << FormatTimestamp(start_time_t) << "\n";
     std::cout << "       [Target File] " << outFileName << "\n";
     std::cout << "       [Config (1)]  RL: " << bd->GetRL() << " (" << expected_evt_bytes << " B/evt)"
+              << " | DSR: /" << bd->GetSAMPLING()
               << " | TLT: 0x" << std::hex << bd->GetTLT() << std::dec
               << " | CW: " << bd->GetCW(0) << "\n";
     std::cout << "       [Config (2)]  POL: " << bd->GetPOL(0)
               << " | DLY: " << bd->GetDLY(0)
-              << " | DACOFF: " << bd->GetDACOFF(0) << "\n";
+              << " | DACOFF: " << bd->GetDACOFF(0)
+              << " | TMODE: " << bd->GetTMODE(0) << "\n";
     std::cout << "       [Config (3)]  THR: " << bd->GetTHR(0) << "\n";
 
     if (maxEvents > 0) std::cout << "       [Limit]       " << maxEvents << " Events\n";
@@ -91,13 +100,37 @@ void BinaryDaqManager::Stop() {
 }
 
 void BinaryDaqManager::ProducerWorker(int maxTime) {
+    const FadcBD* bd = fRunInfo ? fRunInfo->GetFadcBD(0) : nullptr;
+    const size_t event_bytes = ExpectedEventBytes(bd);
+    // Minimum complete-event KB quantum (1 KB for RL=1,2 [2,1 evts]; 2..128 KB for RL=4..256)
+    const uint32_t event_align_kb = static_cast<uint32_t>(std::max<size_t>(1ULL, (event_bytes + 1023ULL) / 1024ULL));
+    // Active streaming minimum transfer quantum: multiple of BOTH 16 KB FX3 burst (usb3com.c) AND event_align_kb
+    const uint32_t burst_align_kb = std::max(NoticeFadc500Spec::kUsbBurstAlignKb, event_align_kb);
+    // Preferred high-throughput slice alignment from vendor nkfadc500_4_test.C:262 (128 KB)
+    const uint32_t stream_align_kb = std::max(NoticeFadc500Spec::kStreamSliceAlignKb, burst_align_kb);
+    constexpr uint32_t kMaxChunkKb = 4096U; // 4 MB per DMA buffer (exact multiple of 128 KB)
+
     fDevice->StartDAQ();
-    auto start_time = std::chrono::steady_clock::now();
+    const auto start_time = std::chrono::steady_clock::now();
+    auto last_read_time = start_time;
+
+    auto pushReadKb = [&](uint32_t read_kb) {
+        if (read_kb == 0U) return;
+        const size_t total_bytes_to_read = static_cast<size_t>(read_kb) * 1024ULL;
+        RawBuffer* buffer = nullptr;
+        if (!fFreeQueue.TryPop(buffer)) {
+            buffer = new RawBuffer(4 * 1024 * 1024);
+        }
+        buffer->EnsureCapacity(total_bytes_to_read);
+        fDevice->ReadDATA(read_kb, buffer->data);
+        buffer->size = total_bytes_to_read;
+        fDataQueue.Push(buffer);
+    };
 
     while (fIsRunning.load()) {
+        const auto current_time = std::chrono::steady_clock::now();
         if (maxTime > 0) {
-            auto current_time = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time).count();
+            const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time).count();
             if (elapsed >= maxTime) {
                 std::cout << "\n";
                 ELog::Print(ELog::INFO, "Time limit reached (" + std::to_string(maxTime) + " sec). Stopping DAQ...");
@@ -106,23 +139,16 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
             }
         }
 
-        unsigned int raw_bcount = fDevice->ReadBCOUNT();
-
-        if (raw_bcount == 0xFFFFFFFFU) {
+        // Full 32-bit BCOUNT (0..65536 KB); never mask with 0xFFFF!
+        const uint32_t bcount_kb = fDevice->ReadBCOUNT();
+        if (bcount_kb == NoticeFadc500Spec::kUsbReadErrorWord) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
-
-        unsigned int bcount_kb = raw_bcount & 0x0000FFFFU;
-
-        if (bcount_kb == 0) {
+        if (bcount_kb == 0U) {
             std::this_thread::sleep_for(std::chrono::microseconds(100));
             continue;
         }
-
-        if (bcount_kb > 4096) bcount_kb = 4096;
-
-        const size_t total_bytes_to_read = static_cast<size_t>(bcount_kb) * 1024ULL;
 
         // Backpressure guard when disk writer falls >50 chunks behind
         if (fDataQueue.Size() > 50) {
@@ -130,19 +156,40 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
             continue;
         }
 
-        RawBuffer* buffer = nullptr;
-        if (!fFreeQueue.TryPop(buffer)) {
-            buffer = new RawBuffer(4 * 1024 * 1024);
+        uint32_t read_kb = 0U;
+        if (bcount_kb >= stream_align_kb) {
+            const uint32_t capped = std::min(bcount_kb, kMaxChunkKb);
+            read_kb = (capped / stream_align_kb) * stream_align_kb;
+        } else if (bcount_kb >= burst_align_kb) {
+            const auto since_last_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_read_time).count();
+            if (since_last_ms >= 40) {
+                read_kb = (bcount_kb / burst_align_kb) * burst_align_kb;
+            }
         }
 
-        buffer->EnsureCapacity(total_bytes_to_read);
+        if (read_kb == 0U) {
+            std::this_thread::sleep_for(std::chrono::microseconds(250));
+            continue;
+        }
 
-        fDevice->ReadDATA(bcount_kb, buffer->data);
-        buffer->size = total_bytes_to_read;
-        fDataQueue.Push(buffer);
+        pushReadKb(read_kb);
+        last_read_time = std::chrono::steady_clock::now();
     }
 
-    fDevice->StopDAQ();
+    // Stop hardware triggers first, then drain any remaining complete events (< stream_align_kb) before flushing!
+    fDevice->StopAcquisitionOnly();
+    const uint32_t tail_bcount_kb = fDevice->ReadBCOUNT();
+    if (tail_bcount_kb != NoticeFadc500Spec::kUsbReadErrorWord && tail_bcount_kb >= event_align_kb) {
+        uint32_t remaining_aligned_kb = (tail_bcount_kb / event_align_kb) * event_align_kb;
+        while (remaining_aligned_kb > 0U && fDataQueue.Size() <= 60) {
+            const uint32_t step_kb = std::min(remaining_aligned_kb, kMaxChunkKb);
+            pushReadKb(step_kb);
+            remaining_aligned_kb -= step_kb;
+        }
+    }
+
+    fDevice->ClearAndFlushUSB();
     fDataQueue.Stop();
 }
 
@@ -158,14 +205,9 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
     // 16 MB stdio write buffer to minimize syscall jitter
     std::setvbuf(fp, nullptr, _IOFBF, 16 * 1024 * 1024);
 
-    // Compute exact 4-channel interleaved packet size from RECORD_LEN (RL * 128 B/ch * 4 ch = RL * 512 B/evt)
-    size_t bytes_per_event = 4096ULL;
-    if (FadcBD* bd = fRunInfo->GetFadcBD(0)) {
-        if (bd->GetRL() > 0) {
-            bytes_per_event = static_cast<size_t>(bd->GetRL()) * 512ULL;
-        }
-    }
+    size_t bytes_per_event = ExpectedEventBytes(fRunInfo ? fRunInfo->GetFadcBD(0) : nullptr);
     bool packet_size_verified = false;
+    bool target_reached_logged = false;
 
     size_t total_written_bytes = 0;
     uint64_t current_events = 0;
@@ -183,35 +225,47 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
         if (fDataQueue.WaitAndPopFor(popBuffer, std::chrono::milliseconds(50))) {
             if (popBuffer) {
                 if (popBuffer->size > 0) {
-                    // Self-verify packet size from the first valid 128-byte FPGA header
+                    // Self-verify packet size from the first valid 128-byte FPGA header (supports ZEROSUP data_length==32!)
                     if (!packet_size_verified && popBuffer->size >= 128) {
-                        uint32_t ch_data_len =
-                            static_cast<uint32_t>(popBuffer->data[0]) |
-                            (static_cast<uint32_t>(popBuffer->data[4]) << 8) |
-                            (static_cast<uint32_t>(popBuffer->data[8]) << 16) |
-                            (static_cast<uint32_t>(popBuffer->data[12]) << 24);
-                        if (ch_data_len >= 128U && ch_data_len <= 1048576U && (ch_data_len % 128U == 0U)) {
-                            bytes_per_event = static_cast<size_t>(ch_data_len) * 4ULL;
+                        const auto hdr = NoticeFadc500Spec::DecodeHeader128(popBuffer->data);
+                        if (hdr.valid_geometry && hdr.valid_channel_tags) {
+                            bytes_per_event = static_cast<size_t>(hdr.data_length) * 4ULL;
                             packet_size_verified = true;
                         }
                     }
 
-                    size_t written = std::fwrite(popBuffer->data, 1, popBuffer->size, fp);
-                    total_written_bytes += written;
-                    if (written != popBuffer->size) {
-                        ELog::Print(ELog::ERROR,
-                            "Disk write error on " + outFileName + " (wrote " +
-                            std::to_string(written) + " / " + std::to_string(popBuffer->size) +
-                            " bytes). Stopping DAQ safely.");
-                        fIsRunning.store(false);
+                    size_t bytes_to_write = popBuffer->size;
+                    if (maxEvents > 0 && bytes_per_event > 0) {
+                        const size_t max_total_bytes = static_cast<size_t>(maxEvents) * bytes_per_event;
+                        if (total_written_bytes >= max_total_bytes) {
+                            bytes_to_write = 0;
+                        } else if (total_written_bytes + bytes_to_write > max_total_bytes) {
+                            // Exact packet-aligned cutoff so maxEvents never overshoots or writes partial packets
+                            bytes_to_write = max_total_bytes - total_written_bytes;
+                        }
                     }
 
-                    current_events = total_written_bytes / bytes_per_event;
+                    if (bytes_to_write > 0) {
+                        const size_t written = std::fwrite(popBuffer->data, 1, bytes_to_write, fp);
+                        total_written_bytes += written;
+                        if (written != bytes_to_write) {
+                            ELog::Print(ELog::ERROR,
+                                "Disk write error on " + outFileName + " (wrote " +
+                                std::to_string(written) + " / " + std::to_string(bytes_to_write) +
+                                " bytes). Stopping DAQ safely.");
+                            fIsRunning.store(false);
+                        }
+                    }
+
+                    current_events = (bytes_per_event > 0) ? (total_written_bytes / bytes_per_event) : 0ULL;
 
                     if (maxEvents > 0 && current_events >= static_cast<uint64_t>(maxEvents)) {
-                        std::cout << "\n\n";
-                        ELog::Print(ELog::INFO,
-                            "Target reached! (" + std::to_string(current_events) + " events). Stopping DAQ...");
+                        if (!target_reached_logged) {
+                            std::cout << "\n\n";
+                            ELog::Print(ELog::INFO,
+                                "Target reached! (" + std::to_string(current_events) + " events). Stopping DAQ...");
+                            target_reached_logged = true;
+                        }
                         fIsRunning.store(false);
                     }
                 }
@@ -242,6 +296,12 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
             last_print_events = current_events;
             last_print_bytes = total_written_bytes;
         }
+    }
+
+    if (bytes_per_event > 0 && (total_written_bytes % bytes_per_event) != 0) {
+        ELog::Print(ELog::WARNING,
+            Form("Output stream size (%zu B) has %zu trailing unaligned bytes (packet=%zu B).",
+                 total_written_bytes, total_written_bytes % bytes_per_event, bytes_per_event));
     }
 
     std::fflush(fp);

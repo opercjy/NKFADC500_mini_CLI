@@ -13,10 +13,12 @@ class ProcessManager(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.process = None
+        self._proc_gen = 0
         self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         self._init_process()
 
     def _init_process(self):
+        self._proc_gen += 1
         if self.process is not None:
             if self.process.state() != QProcess.NotRunning:
                 self.process.kill()
@@ -60,6 +62,7 @@ class ProcessManager(QObject):
 
     def stop_process(self):
         if self.is_running():
+            target_gen = self._proc_gen
             self.log_signal.emit(
                 "<span style='color: #F57C00;'><b>[GUI] Sending interrupt signal (SIGINT)...</b></span>",
                 False,
@@ -69,12 +72,16 @@ class ProcessManager(QObject):
             except Exception:
                 self.process.terminate()
 
-            QTimer.singleShot(1500, self.force_kill)
+            # Allow up to 8.0 s for post-stop DRAM aligned tail drain & USB3 flush,
+            # guarded by generation token so a subsequent run is never killed by a stale timer!
+            QTimer.singleShot(8000, lambda gen=target_gen: self.force_kill(gen))
 
-    def force_kill(self):
+    def force_kill(self, expected_gen=None):
+        if expected_gen is not None and expected_gen != self._proc_gen:
+            return
         if self.is_running():
             self.log_signal.emit(
-                "<span style='color: #D32F2F; font-weight: bold;'>[GUI] Process did not exit within 1.5s. FORCING KILL!</span>",
+                "<span style='color: #D32F2F; font-weight: bold;'>[GUI] Process did not exit within 8.0s. FORCING KILL!</span>",
                 True,
             )
             self.process.kill()

@@ -10,13 +10,15 @@
 #include <vector>
 
 #include "ELog.hh"
-#include "TAxis.h"
+#include "NoticeFadc500Spec.hh"
 #include "TApplication.h"
+#include "TAxis.h"
 #include "TCanvas.h"
 #include "TH1F.h"
 #include "TH1I.h"
 #include "TLine.h"
 #include "TROOT.h"
+#include "TString.h"
 #include "TSystem.h"
 
 namespace {
@@ -34,12 +36,24 @@ int main(int argc, char** argv) {
     std::cout << "\033[1;32m   NKFADC500 Mini - LIVE Online Monitor (Auto-Clear)\033[0m\n";
     std::cout << "\033[1;36m========================================================\033[0m\n\n";
 
-    if (argc < 2) {
-        ELog::Print(ELog::FATAL, "Usage: ./online_nkfadc500 <live_data_file.dat>");
-        return 1;
+    std::string inputFile;
+    std::string explicitConfig;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if ((arg == "-f" || arg == "--config") && i + 1 < argc) {
+            explicitConfig = argv[++i];
+        } else if (arg == "-h" || arg == "--help") {
+            std::cout << "Usage: ./online_nkfadc500 <live_data_file.dat> [-f <settings.cfg>]\n";
+            return 0;
+        } else if (!arg.empty() && arg[0] != '-') {
+            inputFile = arg;
+        }
     }
 
-    std::string inputFile = argv[1];
+    if (inputFile.empty()) {
+        ELog::Print(ELog::FATAL, "Usage: ./online_nkfadc500 <live_data_file.dat> [-f <settings.cfg>]");
+        return 1;
+    }
 
     FILE* fp = std::fopen(inputFile.c_str(), "rb");
     if (!fp) {
@@ -47,7 +61,16 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    ELog::Print(ELog::INFO, Form("Tailing live DAQ stream : %s", inputFile.c_str()));
+    const std::string cfgPath =
+        NoticeFadc500Spec::ResolveCompanionConfigPath(explicitConfig, inputFile, argv[0]);
+    NoticeFadc500Spec::StreamDecodeConfig streamCfg =
+        NoticeFadc500Spec::LoadStreamDecodeConfig(cfgPath);
+
+    ELog::Print(ELog::INFO,
+        Form("Tailing live DAQ stream: %s (cfg: %s, dt=%.1f ns, POL[0]=%d)",
+             inputFile.c_str(),
+             streamCfg.loaded_path.empty() ? "defaults" : streamCfg.loaded_path.c_str(),
+             streamCfg.dt_ns, streamCfg.polarity[0]));
 
     TApplication app("app", &argc, argv);
     TCanvas* c1 = new TCanvas("c1", "FADC500 LIVE Waveform & Spectrum Monitor", 1600, 800);
@@ -58,12 +81,12 @@ int main(int argc, char** argv) {
     TLine* lBase[4];
 
     for (int i = 0; i < 4; i++) {
-        hWave[i] = new TH1I(Form("hWave_%d", i), Form("Channel %d Live;Time (ns);ADC Count", i), 1024, 0, 2048);
+        hWave[i] = new TH1I(Form("hWave_%d", i), Form("Channel %d Live;Time (ns);ADC Count", i), 1024, 0, 1024 * streamCfg.dt_ns);
         hWave[i]->SetLineColor(kAzure + 2);
         hWave[i]->SetLineWidth(2);
         hWave[i]->SetStats(0);
 
-        hSpec[i] = new TH1F(Form("hSpec_%d", i), Form("Channel %d Charge Spectrum;Charge (ADC*sample);Counts", i), 500, 0, 30000);
+        hSpec[i] = new TH1F(Form("hSpec_%d", i), Form("Channel %d Charge Spectrum;Charge (ADC*ns);Counts", i), 500, 0, 60000);
         hSpec[i]->SetLineColor(kRed + 1);
         hSpec[i]->SetFillColor(kRed - 9);
         hSpec[i]->SetFillStyle(1001);
@@ -118,8 +141,11 @@ int main(int argc, char** argv) {
         std::fseek(fp, packet_start_pos, SEEK_SET);
 
         if (file_size < packet_start_pos) {
-            ELog::Print(ELog::WARNING, "File truncation detected (New Run). Auto-clearing...");
+            ELog::Print(ELog::WARNING, "File truncation detected (New Run). Reloading companion config & auto-clearing...");
             std::rewind(fp);
+            const std::string refreshedCfg =
+                NoticeFadc500Spec::ResolveCompanionConfigPath(explicitConfig, inputFile, argv[0]);
+            streamCfg = NoticeFadc500Spec::LoadStreamDecodeConfig(refreshedCfg);
             for (int i = 0; i < 4; i++) {
                 hWave[i]->Reset();
                 hSpec[i]->Reset();
@@ -138,18 +164,20 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        const uint32_t data_length =
-            static_cast<uint32_t>(header[0]) |
-            (static_cast<uint32_t>(header[4]) << 8) |
-            (static_cast<uint32_t>(header[8]) << 16) |
-            (static_cast<uint32_t>(header[12]) << 24);
-        if (data_length <= 32U || data_length > 100000000U || ((data_length - 32U) % 2U != 0U)) {
-            ELog::Print(ELog::WARNING, Form("Invalid packet length (%u) at byte %ld; pausing monitor.", data_length, packet_start_pos));
+        const auto hdr = NoticeFadc500Spec::DecodeHeader128(header);
+        if (!hdr.valid_geometry || !hdr.valid_channel_tags) {
+            ELog::Print(ELog::WARNING, Form("Invalid packet header (len=%u) at byte %ld; pausing monitor.", hdr.data_length, packet_start_pos));
             break;
         }
 
-        const int num_samples = static_cast<int>((data_length - 32U) / 2U);
+        const int num_samples = static_cast<int>((hdr.data_length - 32U) / 2U);
         const size_t payload_bytes = static_cast<size_t>(num_samples) * 8ULL;
+
+        if (num_samples == 0) {
+            // Zero-suppressed header-only packet
+            liveEventID++;
+            continue;
+        }
 
         payload.resize(payload_bytes);
         if (std::fread(payload.data(), 1, payload_bytes, fp) < payload_bytes) {
@@ -175,34 +203,41 @@ int main(int argc, char** argv) {
             wave[3][j] = static_cast<uint16_t>((payload[offset + 3] | (payload[offset + 7] << 8)) & 0x0FFFU);
         }
 
+        const double dt_ns = streamCfg.dt_ns;
         double bsl[4] = {0.0, 0.0, 0.0, 0.0};
         double minV[4] = {99999.0, 99999.0, 99999.0, 99999.0};
         double maxV[4] = {-99999.0, -99999.0, -99999.0, -99999.0};
 
         for (int i = 0; i < 4; i++) {
             double bslSum = 0.0;
-            const int nPed = std::min(20, num_samples);
+            const int nPed = NoticeFadc500Spec::ComputeBaselineSamples(
+                streamCfg.delay_ns[i], dt_ns, num_samples);
             for (int pt = 0; pt < nPed; pt++) bslSum += wave[i][pt];
             bsl[i] = (nPed > 0) ? (bslSum / static_cast<double>(nPed)) : 0.0;
 
-            double charge = 0.0;
+            const int pol = streamCfg.polarity[i];
+            double chargeNs = 0.0;
             for (int pt = 0; pt < num_samples; pt++) {
                 const uint16_t val = wave[i][pt];
                 if (val > maxV[i]) maxV[i] = val;
                 if (val < minV[i]) minV[i] = val;
-                const double drop = bsl[i] - static_cast<double>(val);
-                if (drop > 0.0) charge += drop;
+                const double sig = (pol == 0)
+                    ? (bsl[i] - static_cast<double>(val))
+                    : (static_cast<double>(val) - bsl[i]);
+                if (sig > 0.0) chargeNs += sig * dt_ns;
             }
-            if (charge > 0.0) hSpec[i]->Fill(charge);
+            if (chargeNs > 0.0) hSpec[i]->Fill(chargeNs);
         }
 
         auto now = std::chrono::steady_clock::now();
         const double elapsed = std::chrono::duration<double>(now - last_update).count();
 
         if (elapsed > 0.1) {
+            const double xMaxNs = num_samples * dt_ns;
             for (int i = 0; i < 4; i++) {
-                if (hWave[i]->GetNbinsX() != num_samples) {
-                    hWave[i]->SetBins(num_samples, 0.0, num_samples * 2.0);
+                if (hWave[i]->GetNbinsX() != num_samples ||
+                    std::abs(hWave[i]->GetXaxis()->GetXmax() - xMaxNs) > 1e-3) {
+                    hWave[i]->SetBins(num_samples, 0.0, xMaxNs);
                 }
                 hWave[i]->Reset();
                 for (int pt = 0; pt < num_samples; pt++) {
@@ -212,11 +247,12 @@ int main(int argc, char** argv) {
                 double margin = (maxV[i] - minV[i]) * 0.1;
                 if (margin < 10.0) margin = 10.0;
                 hWave[i]->GetYaxis()->SetRangeUser(minV[i] - margin, maxV[i] + margin);
-                hWave[i]->SetTitle(Form("Ch %d Waveform (Event: %u);Time (ns);ADC Count", i, liveEventID));
+                hWave[i]->SetTitle(Form("Ch %d Waveform (Event: %u, POL=%d);Time (ns);ADC Count",
+                                        i, liveEventID, streamCfg.polarity[i]));
 
                 lBase[i]->SetX1(0.0);
                 lBase[i]->SetY1(bsl[i]);
-                lBase[i]->SetX2(num_samples * 2.0);
+                lBase[i]->SetX2(xMaxNs);
                 lBase[i]->SetY2(bsl[i]);
 
                 c1->cd(i + 1);
