@@ -25,6 +25,7 @@
 9. [인공지능 활용 선언 (Declaration of AI Use — `Argon` Model)](#9-인공지능-활용-선언-declaration-of-ai-use-in-staticdynamic-verification)
 10. [감사의 글 (Acknowledgements)](#10-감사의-글-acknowledgements)
 11. [GUI 마스터 패널 및 실측 분석 화면 (Experimental Screenshots)](#11-gui-마스터-패널-및-실측-분석-화면-uiux--experimental-screenshots)
+12. [저자 및 인공지능 보조 정보 (Author & AI Verification Assistant)](#12-저자-및-인공지능-보조-정보-author--ai-verification-assistant)
 
 ---
 
@@ -354,3 +355,19 @@ printf("Ch0 THR = %d ADC, DLY = %d ns, HW PED = %d ADC\n", bd->GetTHR(0), bd->Ge
 
 5. **감마선 컴프턴 엣지(Compton Edge) 상보 오차함수($\text{erfc}$) 정밀 피팅 (`offline_compton_edge.cpp`)**:
    <img width="1020" height="740" alt="Compton Edge Solver" src="https://github.com/user-attachments/assets/b60cfbac-8913-41c8-bb8a-0bc9c070f654" />
+
+---
+
+## 12. 저자 및 인공지능 보조 정보 (Author & AI Verification Assistant)
+
+| 구분 (Role) | 성명 / 모델명 (Name / Model) | 소속 및 상세 역할 (Affiliation & Contributions) | 연락처 및 저장소 (Contact & Links) |
+| :--- | :--- | :--- | :--- |
+| **연구 및 개발 총괄 저자**<br>*(Lead Author & Principal Developer)* | **최지영 (Ji Young Choi)** | **전남대학교 물리학과 정밀중성미자연구센터 (CPNR)**<br>*(Center for Precision Neutrino Research, Department of Physics, Chonnam National University, Gwangju 61186, Republic of Korea)*<br>• NKFADC500-4 C++17 DAQ 아키텍처 설계, 검출기 프런트엔드 테스트벤치 구축, 오프라인 물리 분석(SPE / Compton Edge / PSD) 및 전체 시스템 통합·검수 총괄 | • Email: [`opercjy@gmail.com`](mailto:opercjy@gmail.com)<br>• GitHub: [`@opercjy`](https://github.com/opercjy)<br>• Repo: [`NKFADC500_mini_CLI`](https://github.com/opercjy/NKFADC500_mini_CLI) |
+| **인공지능 정적·동적 검증 및 엔지니어링 보조**<br>*(AI Static/Dynamic Analysis & Engineering Assistant)* | **Argon (`Argon`)** | **Google Antigravity (`agy`) Agentic Coding Environment**<br>• C++17 / Notice SDK 정적·동적 코드 감사(Post-Stop Tail Drain, 64-bit 타이밍 롤오버, Rule-of-5), `RunInfo`/`FadcBD` 객체 직렬화, 8-Ch CAEN HV 추상화 계층(HAL) 구현 및 기술 문서화(Okabe–Ito UI/UX) 보조 | • Environment: `Google Antigravity (agy CLI)`<br>• Model Credit: **`Argon`** (Static & Dynamic E2E Verification Co-Pilot) |
+
+---
+
+<div align="center">
+  <sub><b>NKFADC500_mini_CLI</b> — Authored & Maintained by <b>Ji Young Choi (최지영, CPNR, Chonnam National University)</b> · Assisted in Static/Dynamic Verification by <b>Argon</b></sub>
+</div>
+
