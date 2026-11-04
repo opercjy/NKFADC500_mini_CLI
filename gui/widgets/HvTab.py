@@ -95,7 +95,7 @@ class HvTab(QWidget):
         # 1. Top Mode Switch + Hardware Architecture Banner
         mode_layout = QHBoxLayout()
         self.cb_enable_scm = QCheckBox(
-            "🔌 CAEN HV Remote Control 활성화 (Universal SY5527 / SY4527LC 서버 & 8-Ch NIM / 탁상형 TCP/IP · USB 제어)"
+            "🔌 CAEN HV Remote Control 활성화 (Universal SY5527 / SY4527LC 서버 && 8-Ch NIM / 탁상형 TCP/IP · USB 제어)"
         )
         self.cb_enable_scm.setStyleSheet("font-weight: bold; color: #0072B2; font-size: 14px;")
         self.cb_enable_scm.setChecked(False)
@@ -128,7 +128,7 @@ class HvTab(QWidget):
         caen_layout.setSpacing(8)
 
         # 2. Connection & Hardware Abstraction Layer (HAL) Configuration Group
-        self.conn_group = QGroupBox("CAEN High-Voltage Server & 8-Channel Module Connection (HAL)")
+        self.conn_group = QGroupBox("CAEN High-Voltage Server && 8-Channel Module Connection (HAL)")
         self.conn_group.setStyleSheet(
             "QGroupBox { border: 2px solid #0072B2; border-radius: 6px; margin-top: 10px; background-color: #E3F2FD;} "
             "QGroupBox::title { color: #0072B2; font-weight:bold;}"
@@ -212,7 +212,7 @@ class HvTab(QWidget):
 
         # 3. Exclusive Lock / Offline Fallback Notice Group
         self.caen_fallback_widget = QGroupBox(
-            "🔒 Exclusive Session Lock & Manual Database Fallback (단독 점유 / 오프라인 수동 보존)"
+            "🔒 Exclusive Session Lock && Manual Database Fallback (단독 점유 / 오프라인 수동 보존)"
         )
         self.caen_fallback_widget.setFont(QFont("Arial", 10, QFont.Bold))
         self.caen_fallback_widget.setStyleSheet(
@@ -259,7 +259,7 @@ class HvTab(QWidget):
         caen_layout.addWidget(self.caen_fallback_widget)
 
         # 4. 8-Channel HV Configuration, FADC Mapping & Live Telemetry Table
-        ctrl_group = QGroupBox("8-Channel HV Controller & NKFADC500 Ch 0–3 Mapping Matrix")
+        ctrl_group = QGroupBox("8-Channel HV Controller && NKFADC500 Ch 0–3 Mapping Matrix")
         ctrl_layout = QVBoxLayout(ctrl_group)
         ctrl_layout.setContentsMargins(8, 16, 8, 8)
 
@@ -451,21 +451,20 @@ class HvTab(QWidget):
                 item_state.setFont(QFont("Consolas", 10, QFont.Bold))
                 self.table.setItem(row, self.COL_STATE, item_state)
 
-                # Col 10: Power Button / Manual Tag
-                if not is_caen:
-                    self.table.removeCellWidget(row, self.COL_POWER)
-                    item_pw = QTableWidgetItem("Manual Dial")
-                    item_pw.setFlags(Qt.ItemIsEnabled)
-                    item_pw.setTextAlignment(Qt.AlignCenter)
-                    item_pw.setForeground(QColor("#5D4037"))
-                    self.table.setItem(row, self.COL_POWER, item_pw)
-                else:
+                # Col 10: Persistent Power Button / Manual Tag
+                btn_pw = self.table.cellWidget(row, self.COL_POWER)
+                if btn_pw is None:
                     self.table.setItem(row, self.COL_POWER, QTableWidgetItem(""))
-                    btn_pw = QPushButton("Power ON" if not ch.pw else "Power OFF")
-                    self._style_power_button(btn_pw, ch.pw)
-                    btn_pw.setEnabled(self.connected)
+                    btn_pw = QPushButton()
                     btn_pw.clicked.connect(lambda _=False, r=row: self.toggle_channel_power(r))
                     self.table.setCellWidget(row, self.COL_POWER, btn_pw)
+                if not is_caen:
+                    btn_pw.setText("Manual Dial")
+                    btn_pw.setStyleSheet("background-color: #EFEBE9; color: #5D4037; font-weight: bold;")
+                    btn_pw.setEnabled(False)
+                else:
+                    self._style_power_button(btn_pw, ch.pw)
+                    btn_pw.setEnabled(self.connected)
         finally:
             self._updating_table = False
 

@@ -306,17 +306,51 @@ printf("Ch0 THR = %d ADC, DLY = %d ns, HW PED = %d ADC\n", bd->GetTHR(0), bd->Ge
 
 ## 11. GUI 마스터 패널 및 실측 분석 화면 (UI/UX & Experimental Screenshots)
 
-아래 화면들은 실제 NKFADC500 Mini 장비와 검출기 테스트벤치에서 측정·수집된 파형, 스펙트럼, 및 마스터 제어 패널 구동 결과입니다.
+### 11.1 최신 PySide6 마스터 제어 콘솔 (Updated Master GUI — Okabe–Ito Palette & 8-Ch CAEN HV HAL)
 
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/caf885ed-6a0e-49b9-b3d4-640814ba8622" />
-<img width="1620" height="840" alt="image" src="https://github.com/user-attachments/assets/479fa003-bcf3-45d4-88e6-4eeb6a5af267" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/68e789c8-bd36-41de-89f7-7e63d8b898ca" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/c5858df4-c5cb-4b36-87c3-d2c69a1cf1da" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/cca1b29c-21c0-4f47-a844-ef76cb35266c" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/e56c3927-fdb1-4fc0-956c-825f6cdf4e41" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/88afd1a2-55e9-4770-8f9b-251395f70e96" />
-<img width="1370" height="940" alt="image" src="https://github.com/user-attachments/assets/1c4f2458-44b4-4d81-a955-bacb10501f02" />
-<img width="1620" height="1040" alt="image" src="https://github.com/user-attachments/assets/2fd31349-56b7-4d9b-9a19-f5a6300b1819" />
-<img width="1420" height="640" alt="image" src="https://github.com/user-attachments/assets/6302864c-0d4d-4d2d-9111-0757d465f2de" />
-<img width="1420" height="940" alt="image" src="https://github.com/user-attachments/assets/a9b391dc-5b15-4d8b-9183-6acb0cf3da12" />
-<img width="1020" height="740" alt="image" src="https://github.com/user-attachments/assets/b60cfbac-8913-41c8-bb8a-0bc9c070f654" />
+최근 아키텍처 개편(`RunInfo`/`FadcBD` 객체 직렬화, **Okabe–Ito 색각 안전 4채널 팔레트**, **8채널 CAEN HV 하드웨어 추상화 계층(HAL: `SY5527` / `SY4527LC` / `N1470` / `DT1470ET`)**, 및 **`DaqTab` $\leftrightarrow$ `HvTab` 실시간 양방향 제어**)이 반영된 마스터 GUI의 7개 탭 구동 화면입니다.
+
+1. **`🚀 DAQ Control` 탭 (CAEN `SY5527` / `SY4527LC` / 8-Ch NIM 실시간 고전압 제어 카드 내장 & Threshold Auto-Scan)**:
+   <img width="1370" alt="DAQ Control Tab with Live CAEN HV Strip" src="./docs/images/gui_01_daq_control.png" />
+
+2. **`👁️ Online Monitor` 탭 (Okabe–Ito 색각 안전 팔레트 기반 4채널 실시간 파형 및 스펙트럼 모니터)**:
+   <img width="1370" alt="Online Monitor Tab with Okabe-Ito Palette" src="./docs/images/gui_02_online_monitor.png" />
+
+3. **`⚡ HV Control` 탭 — CAEN 원격 제어 모드 (`SY5527` / `SY4527LC` 서버 & 8-Ch NIM / 탁상형 HAL 및 FADC 매핑 매트릭스)**:
+   <img width="1370" alt="HV Control Tab - CAEN Remote Control Mode" src="./docs/images/gui_03_hv_caen_online.png" />
+
+4. **`⚡ HV Control` 탭 — 아날로그 / 수동 기록 모드 (ORTEC NIM 등 수동 다이얼 설정 및 DB 보존)**:
+   <img width="1370" alt="HV Control Tab - Analog Manual Mode" src="./docs/images/gui_04_hv_analog_manual.png" />
+
+5. **`🎯 TLT Config` 탭 (16-Bit `TRIG_TLT` 동시계수 진리표 조합 생성기 및 채널 트리거 시뮬레이터)**:
+   <img width="1370" alt="TLT Config Tab" src="./docs/images/gui_05_tlt_config.png" />
+
+6. **`⚙️ Hardware Config` 탭 (`settings.cfg` 하드웨어 레지스터 설정 편집기)**:
+   <img width="1370" alt="Hardware Config Tab" src="./docs/images/gui_06_hardware_config.png" />
+
+7. **`🛠️ Production` 탭 (ROOT `PROD` 트리 및 `RunInfo`/`FadcBD` 메타데이터 객체 일괄 직렬화 변환기)**:
+   <img width="1370" alt="Production Tab" src="./docs/images/gui_07_production.png" />
+
+8. **`🗄️ Run Database` 탭 (SQLite `fadc500_history.db` 기반 런 이력 및 4채널 HV 메타데이터 자동 로깅)**:
+   <img width="1370" alt="Run Database Tab" src="./docs/images/gui_08_run_database.png" />
+
+---
+
+### 11.2 실제 검출기 측정 파형 및 CERN ROOT 오프라인 물리 분석 화면 (Measured Detector Data Plots)
+
+아래 화면들은 실제 NKFADC500 Mini 장비와 검출기 테스트벤치에서 측정·수집된 실시간 파형, 단일 광전자(SPE) 캘리브레이션, 컴프턴 엣지(Compton Edge) 피팅, 및 2D 파형 구별(PSD) 실측 결과입니다.
+
+1. **실시간 파형 및 전하 스펙트럼 모니터 (`online_nkfadc500`)**:
+   <img width="1620" height="840" alt="FADC500 LIVE Waveform & Spectrum Monitor" src="https://github.com/user-attachments/assets/479fa003-bcf3-45d4-88e6-4eeb6a5af267" />
+
+2. **교육·진단용 종합 대시보드 및 $\Delta t$ 분석 (`offline_anal_edu.cpp`)**:
+   <img width="1620" height="1040" alt="NKFADC500 Educational Analysis Dashboard" src="https://github.com/user-attachments/assets/2fd31349-56b7-4d9b-9a19-f5a6300b1819" />
+
+3. **단일 광전자(SPE) 피팅 및 PMT 절대 이득 교정 (`offline_spe.cpp`)**:
+   <img width="1420" height="640" alt="Advanced PMT SPE Calibration" src="https://github.com/user-attachments/assets/6302864c-0d4d-4d2d-9111-0757d465f2de" />
+
+4. **채널별 파형 잔상(Persistence), 전하·진폭 분포 및 2D PSD 분석 (`offline_anal_500.cpp`)**:
+   <img width="1420" height="940" alt="Channel Comprehensive Analysis" src="https://github.com/user-attachments/assets/a9b391dc-5b15-4d8b-9183-6acb0cf3da12" />
+
+5. **감마선 컴프턴 엣지(Compton Edge) 상보 오차함수($\text{erfc}$) 정밀 피팅 (`offline_compton_edge.cpp`)**:
+   <img width="1020" height="740" alt="Compton Edge Solver" src="https://github.com/user-attachments/assets/b60cfbac-8913-41c8-bb8a-0bc9c070f654" />

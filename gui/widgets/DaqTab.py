@@ -73,7 +73,7 @@ class DaqTab(QWidget):
         path_layout.addWidget(self.path_config)
         layout.addLayout(path_layout)
 
-        cfg_group = QGroupBox("Run & Config Settings")
+        cfg_group = QGroupBox("Run && Config Settings")
         cfg_layout = QGridLayout()
 
         cfg_layout.addWidget(QLabel("File Name (Prefix_Run):"), 0, 0)
@@ -118,7 +118,7 @@ class DaqTab(QWidget):
         # Live CAEN High-Voltage Server Link & Quick Control Strip in DAQ Tab
         # =====================================================================
         self.hv_quick_group = QGroupBox(
-            "⚡ High-Voltage Server Link & FADC Ch 0–3 Live Control (CAEN SY5527 / SY4527LC / 8-Ch NIM)"
+            "⚡ High-Voltage Server Link && FADC Ch 0–3 Live Control (CAEN SY5527 / SY4527LC / 8-Ch NIM)"
         )
         self.hv_quick_group.setStyleSheet(
             "QGroupBox { border: 2px solid #0072B2; border-radius: 6px; background-color: #F4F9FD; margin-top: 8px;} "
@@ -216,7 +216,7 @@ class DaqTab(QWidget):
             self.daq_hv_spin_vset.append(sp_v)
             self.daq_hv_lbl_mon.append(lbl_mon)
             self.daq_hv_btn_pw.append(btn_pw)
-            hv_ch_grid.addWidget(card, 0, fch)
+            hv_ch_grid.addWidget(card, fch // 2, fch % 2)
 
         hv_vbox.addLayout(hv_ch_grid)
         layout.addWidget(self.hv_quick_group)

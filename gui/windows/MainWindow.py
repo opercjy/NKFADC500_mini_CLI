@@ -69,7 +69,7 @@ class MainWindow(QMainWindow):
             """
             QMainWindow { background-color: #ECEFF1; }
             QTabWidget::pane { border: 1px solid #CFD8DC; background: #FFFFFF; border-radius: 4px; }
-            QTabBar::tab { background: #E0E0E0; color: #37474F; padding: 8px 12px; font-size: 13px; font-weight: bold; border: 1px solid #CFD8DC; border-bottom: none; border-top-left-radius: 4px; border-top-right-radius: 4px; margin-right: 2px;}
+            QTabBar::tab { background: #E0E0E0; color: #37474F; padding: 8px 14px; border: 1px solid #CFD8DC; border-bottom: none; border-top-left-radius: 4px; border-top-right-radius: 4px; margin-right: 2px;}
             QTabBar::tab:selected { background: #FFFFFF; border-bottom: 3px solid #1976D2; color: #0D47A1; }
             QLabel { color: #263238; font-weight: bold; }
             QGroupBox { border: 2px solid #B0BEC5; border-radius: 6px; margin-top: 15px; background-color: #FAFAFA; }
@@ -100,6 +100,8 @@ class MainWindow(QMainWindow):
         left_layout.setContentsMargins(0, 0, 5, 0)
 
         self.tabs = QTabWidget()
+        self.tabs.tabBar().setFont(QFont("Arial", 10, QFont.Bold))
+        self.tabs.tabBar().setElideMode(Qt.ElideNone)
         self.hv_tab = HvTab()
         self.daq_tab = DaqTab(
             self.data_output_dir,
@@ -135,7 +137,7 @@ class MainWindow(QMainWindow):
         self.lbl_mode.setStyleSheet("color: #FF9800;")
         d_layout.addWidget(self.lbl_mode)
 
-        cfg_group = QGroupBox("Current Run & Config")
+        cfg_group = QGroupBox("Current Run && Config")
         cfg_group.setStyleSheet("QGroupBox { border: 1px solid #B0BEC5; margin-top: 10px; background-color: #F3E5F5;} QGroupBox::title { color: #6A1B9A; font-size: 11px;}")
         cfg_layout = QVBoxLayout()
         cfg_layout.setContentsMargins(5, 15, 5, 5)

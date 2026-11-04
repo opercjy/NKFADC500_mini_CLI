@@ -33,7 +33,7 @@ class TltTab(QWidget):
             if i & 4: chs.append("Ch2")
             if i & 8: chs.append("Ch3")
             
-            chk = QCheckBox(f"P{i:02d}: [{' & '.join(chs)}]")
+            chk = QCheckBox(f"P{i:02d}: [{' && '.join(chs)}]")
             chk.setStyleSheet("font-size: 13px; padding: 2px;")
             chk.stateChanged.connect(self.calc_tlt)
             self.builder_chks.append((i, chk))
