@@ -29,6 +29,7 @@ private:
     Fadc500Device* fDevice;
 
     std::atomic<bool> fIsRunning;
+    std::atomic<bool> fProducerActive;
     std::thread fProducerThread;
     std::thread fConsumerThread;
 

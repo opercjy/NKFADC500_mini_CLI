@@ -31,7 +31,7 @@ size_t ExpectedEventBytes(const FadcBD* bd) {
 } // namespace
 
 BinaryDaqManager::BinaryDaqManager(RunInfo* runInfo)
-    : fRunInfo(runInfo), fDevice(nullptr), fIsRunning(false)
+    : fRunInfo(runInfo), fDevice(nullptr), fIsRunning(false), fProducerActive(false)
 {
     if (!fRunInfo) return;
     FadcBD* bdConfig = fRunInfo->GetFadcBD(0);
@@ -58,10 +58,20 @@ void BinaryDaqManager::Start(const std::string& outFileName, int maxEvents, int 
     // Clean up any previously completed worker threads before starting a new run
     if (fProducerThread.joinable()) fProducerThread.join();
     if (fConsumerThread.joinable()) fConsumerThread.join();
+
+    // Guarantee zero residual buffer bleed-over across runs by recycling any leftover queue items
+    RawBuffer* leftover = nullptr;
+    while (fDataQueue.TryPop(leftover)) {
+        if (leftover) {
+            leftover->size = 0;
+            fFreeQueue.Push(leftover);
+        }
+    }
     fDataQueue.Reset();
     fFreeQueue.Reset();
 
     fIsRunning.store(true);
+    fProducerActive.store(true);
 
     auto now = std::chrono::system_clock::now();
     std::time_t start_time_t = std::chrono::system_clock::to_time_t(now);
@@ -93,9 +103,10 @@ void BinaryDaqManager::Start(const std::string& outFileName, int maxEvents, int 
 
 void BinaryDaqManager::Stop() {
     fIsRunning.store(false);
+    if (fProducerThread.joinable()) fProducerThread.join();
+    fProducerActive.store(false);
     fDataQueue.Stop();
     fFreeQueue.Stop();
-    if (fProducerThread.joinable()) fProducerThread.join();
     if (fConsumerThread.joinable()) fConsumerThread.join();
 }
 
@@ -177,8 +188,10 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
         last_read_time = std::chrono::steady_clock::now();
     }
 
-    // Stop hardware triggers first, then drain any remaining complete events (< stream_align_kb) before flushing!
+    // Stop hardware triggers first, allow in-flight FPGA delay pipeline (CW+DLY+RL <= 163 us) to settle,
+    // then drain any remaining complete events (< stream_align_kb) before flushing!
     fDevice->StopAcquisitionOnly();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
     const uint32_t tail_bcount_kb = fDevice->ReadBCOUNT();
     if (tail_bcount_kb != NoticeFadc500Spec::kUsbReadErrorWord && tail_bcount_kb >= event_align_kb) {
         uint32_t remaining_aligned_kb = (tail_bcount_kb / event_align_kb) * event_align_kb;
@@ -190,6 +203,7 @@ void BinaryDaqManager::ProducerWorker(int maxTime) {
     }
 
     fDevice->ClearAndFlushUSB();
+    fProducerActive.store(false);
     fDataQueue.Stop();
 }
 
@@ -219,7 +233,7 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
     uint64_t last_print_events = 0;
     size_t last_print_bytes = 0;
 
-    while (fIsRunning.load() || fDataQueue.Size() > 0) {
+    while (fProducerActive.load() || fDataQueue.Size() > 0) {
         RawBuffer* popBuffer = nullptr;
 
         if (fDataQueue.WaitAndPopFor(popBuffer, std::chrono::milliseconds(50))) {

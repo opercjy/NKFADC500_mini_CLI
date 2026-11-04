@@ -317,6 +317,9 @@ void Fadc500Device::Initialize(FadcBD* bdConfig) {
 
 void Fadc500Device::ClearAndFlushUSB() {
     NKFADC500stop(fSid);
+    // Allow any in-flight triggered event in the FPGA delay/digitizer pipeline (CW+DLY+RL <= 163 us)
+    // to finish committing to SDRAM before reading BCOUNT or resetting pointers.
+    usleep(2000);
 
     // IMPORTANT: Do NOT mask raw_bcount with 0xFFFF!
     // Full 64 MB onboard DRAM reports 65,536 KB = 0x10000 (NoticeNKFADC500.c:538,709).
@@ -347,6 +350,18 @@ void Fadc500Device::ClearAndFlushUSB() {
 
     NKFADC500resetTIMER(fSid);
     NKFADC500reset(fSid);
+    usleep(1000);
+
+    // Second-pass check after FPGA DAQ reset in case prefetched FX3 FIFO blocks remained
+    raw_bcount = NKFADC500read_BCOUNT(fSid);
+    if (raw_bcount != 0xFFFFFFFFUL && raw_bcount > 0UL) {
+        const unsigned int rem_kb = static_cast<unsigned int>(
+            std::min<unsigned long>(raw_bcount, 1024UL));
+        std::vector<char> safe_dummy(rem_kb * 1024ULL);
+        NKFADC500read_DATA(fSid, static_cast<int>(rem_kb), safe_dummy.data());
+        NKFADC500resetTIMER(fSid);
+        NKFADC500reset(fSid);
+    }
 }
 
 void Fadc500Device::StartDAQ() {
