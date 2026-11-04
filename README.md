@@ -141,6 +141,10 @@ $$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + 
 구형 `NKFADC500 Mini` (`SID=1`, Cypress FX3 USB 3.0 SuperSpeed `VID=0x0547, PID=0x1502`, `5000 Mbps`) 실장비 온라인 진단([`scripts/explore_fpga_and_timing.py`](./scripts/explore_fpga_and_timing.py))을 통해 규명된 **FPGA VME/USB3 레지스터 맵(`0x20000000`~`0x2000001F`)**, **`DLY` 레지스터(`0x20000007`)의 `+80 ns` 하드웨어 파이프라인 오프셋**, **128-Byte 4채널 바이트 인터리빙 패킷 헤더**, 및 **500 MS/s Dual-Core TI-ADC 특성**은 다음과 같습니다:
 
 <p align="center">
+  <img width="1400" alt="NKFADC500 Mini FPGA Cycle-Accurate Digital Logic Timing Diagram and 16-Bit TLT Boolean Truth Table" src="./docs/images/fig_fpga_digital_logic_timing.png" />
+</p>
+
+<p align="center">
   <img width="1400" alt="NKFADC500 Mini FPGA Trigger Pipeline Timing Diagram, DLY +80ns Offset, and 48-Bit Timestamp Telemetry" src="./docs/images/fig_fpga_timing_and_telemetry.png" />
 </p>
 

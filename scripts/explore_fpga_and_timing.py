@@ -462,6 +462,197 @@ def plot_fpga_timing_and_telemetry(dat_path: str, root_path: str, out_dir: str):
     print(f"[OK] FPGA 타이밍 및 텔레메트리 그래프 저장 완료:\n  - PDF: {out_pdf}\n  - PNG: {out_png}")
 
 
+def plot_digital_boolean_logic_diagram(out_dir: str):
+    """
+    디지털 로직 애널라이저 / RTL 파형도 (Digital Logic Timing Diagram & Boolean Algebra Truth Table) 생성:
+    - 10101010 구형파 클럭 (500 MHz ADC_CLK, 250 MHz TI-ADC Even/Odd, 125 MHz FPGA_SYS_CLK)
+    - 12-bit ADC 데이터 버스 [11:0] Hex 버스 천이 다이어그램
+    - 4채널 비교기(Discriminator) 불 대수(Boolean) 출력 C0, C1, C2, C3 (0/1 디지털 파형)
+    - 16-Bit TLT (Trigger Lookup Table, 0xAAAA = C0) 불 대수 진리표 및 출력 파형
+    - CW (96 ns = 12 clk) 게이트, +80 ns (+0x50 = 10 clk) 파이프라인 시프트, DRAM_WR_EN 신호
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    plt.style.use(hep.style.CMS)
+    setup_korean_font()
+
+    fig = plt.figure(figsize=(19, 13.5), dpi=200)
+    gs = fig.add_gridspec(1, 2, width_ratios=[2.45, 1.0], wspace=0.15)
+
+    # ==========================================================================
+    # 좌측 패널: Cycle-Accurate 디지털 로직 타이밍 파형도 (Logic Analyzer / WaveDrom 스타일)
+    # 시간 축: 트리거 발생 주변 구간 t = 344 ns ~ 472 ns (총 128 ns = 64 ADC samples = 16 FPGA clocks)
+    # ==========================================================================
+    ax = fig.add_subplot(gs[0, 0])
+    t_start, t_end = 344.0, 472.0
+    dt_fine = 0.25  # 0.25 ns 해상도로 구형파 에지 렌더링
+    t = np.arange(t_start, t_end + dt_fine, dt_fine)
+
+    # 1) 500 MHz ADC_CLK (주기 2.0 ns: 1 ns High, 1 ns Low -> 10101010...)
+    clk_500 = ((np.floor((t - t_start) / 1.0).astype(int) % 2) == 0).astype(float)
+
+    # 2) 250 MHz TI_ADC_SEL (짝수/홀수 서브코어 선택: 2 ns Low(Even=0), 2 ns High(Odd=1) -> 01010101...)
+    ti_sel = ((np.floor((t - t_start) / 2.0).astype(int) % 2) == 1).astype(float)
+
+    # 3) 125 MHz FPGA_SYS_CLK (주기 8.0 ns: 4 ns High, 4 ns Low -> 1111000011110000...)
+    clk_125 = ((np.floor((t - t_start) / 4.0).astype(int) % 2) == 0).astype(float)
+
+    # 4) Ch0 비교기 불 출력 C0 = [(B - ADC[k]) >= THR(30 ADC)]: t = 360 ns ~ 384 ns 동안 '1' (High)
+    c0_disc = ((t >= 360.0) & (t < 384.0)).astype(float)
+
+    # 5) Ch1..Ch3 비교기 불 출력 C1, C2, C3 (THR=4095 마스킹 -> 상시 '0' Low)
+    c123_disc = np.zeros_like(t)
+
+    # 6) 16-Bit TLT 불 함수 출력 Y_TLT = F(C3,C2,C1,C0) = C0 (0xAAAA = 1010_1010_1010_1010_2)
+    #    125 MHz 클럭 상승 에지(t=360 ns)에 동기화되어 래치됨
+    tlt_out = ((t >= 360.0) & (t < 384.0)).astype(float)
+
+    # 7) CW_GATE (동시계수 윈도우 CW=100 ns -> 8 ns 내림 양자화로 96 ns = 12 클럭 @ 125 MHz 유지: 360 ~ 456 ns)
+    cw_gate = ((t >= 360.0) & (t < 456.0)).astype(float)
+
+    # 8) PIPE_DLY (+80 ns = +0x50 = 10 클럭 @ 125 MHz 내부 트리거 파이프라인 지연 시프트: 368 ~ 448 ns)
+    pipe_shift = ((t >= 368.0) & (t < 448.0)).astype(float)
+
+    # 9) DRAM_RING_FREEZE & PKT_COMMIT (파이프라인 완료 후 링버퍼 고정 및 패킷 헤더 타임스탬프 래치 스트로브)
+    dram_commit = ((t >= 448.0) & (t < 464.0)).astype(float)
+
+    tracks = [
+        ("1. ADC_CLK (500 MHz, 2 ns)",            clk_500,     OKABE_ITO["black"],          10.0, "10101010..."),
+        ("2. TI_ADC_CORE (250 MHz Even=0/Odd=1)", ti_sel,      OKABE_ITO["sky_blue"],        8.8, "0(Even) / 1(Odd)"),
+        ("3. FPGA_CLK (125 MHz, 8 ns)",           clk_125,     OKABE_ITO["blue"],            7.6, "125 MHz SysClk"),
+        ("4. C0: Ch0_DISC (dV >= 30 ADC)",        c0_disc,     OKABE_ITO["vermilion"],       5.2, "Boolean C0 in {0,1}"),
+        ("5. C1..C3: Ch1..3_DISC (THR=4095)",     c123_disc,   OKABE_ITO["grey"],            4.0, "Boolean C1=C2=C3=0"),
+        ("6. TLT_OUT = F(C3,C2,C1,C0) [0xAAAA]",  tlt_out,     OKABE_ITO["bluish_green"],    2.8, "Y_TLT = C0"),
+        ("7. CW_WINDOW (CW=100ns -> 96ns, 12clk)",cw_gate,     OKABE_ITO["orange"],          1.6, "12 x 8ns = 96ns"),
+        ("8. PIPE_OFFSET (+0x50 = +80ns, 10clk)", pipe_shift,  OKABE_ITO["reddish_purple"],  0.4, "10 x 8ns = +80ns"),
+        ("9. TRIG_LATCH & HEADER_TS_COMMIT",      dram_commit, OKABE_ITO["blue"],           -0.8, "Latch Fine/Coarse TS"),
+    ]
+
+    # 125 MHz 클럭 그리드 수직 점선 (8 ns 간격)
+    for clk_t in np.arange(t_start, t_end + 1, 8.0):
+        ax.axvline(clk_t, color="#D0D7DE", ls=":", lw=0.9, zorder=1)
+
+    # 각 디지털 트랙 렌더링 및 '0'/'1' 비트열 텍스트 오버레이
+    for label, sig, color, y_base, right_note in tracks:
+        y_wave = y_base + 0.72 * sig
+        ax.step(t, y_wave, where="post", color=color, lw=2.1, zorder=3)
+        ax.fill_between(t, y_base, y_wave, step="post", color=color, alpha=0.14, zorder=2)
+        ax.axhline(y_base, color="#E0E0E0", lw=0.8, zorder=1)
+
+        # 좌측 신호명 라벨 및 0/1 레벨 표기
+        ax.text(t_start - 1.5, y_base + 0.36, label, ha="right", va="center",
+                fontsize=9.8, fontweight="bold", color=color)
+        ax.text(t_start - 0.3, y_base + 0.05, "0", ha="right", va="bottom", fontsize=7.5, color="#666666")
+        ax.text(t_start - 0.3, y_base + 0.68, "1", ha="right", va="top", fontsize=7.5, color="#666666")
+
+        # 8 ns 클럭 슬롯마다 실제 불 대수 비트값 ('0' 또는 '1') 표시 (고주파 클럭 트랙 제외)
+        if any(k in label for k in ["C0:", "C1..C3:", "TLT_OUT", "CW_WINDOW", "PIPE_OFFSET", "TRIG_LATCH"]):
+            for slot_t in np.arange(t_start + 4.0, t_end, 8.0):
+                idx = int((slot_t - t_start) / dt_fine)
+                bit_val = int(sig[min(idx, len(sig) - 1)])
+                ax.text(slot_t, y_base + 0.35, str(bit_val), ha="center", va="center",
+                        fontsize=8.5, fontweight="bold",
+                        color=color if bit_val == 1 else "#888888")
+
+    # 250 MHz TI-ADC 트랙에 E/O (0/1) 비트열 일부 표시
+    for slot_t in np.arange(t_start + 1.0, t_start + 40.0, 2.0):
+        bit_val = int(((slot_t - t_start) // 2.0) % 2)
+        ax.text(slot_t, 8.8 + 0.35, str(bit_val), ha="center", va="center",
+                fontsize=7.2, fontweight="bold", color=OKABE_ITO["sky_blue"])
+
+    # --------------------------------------------------------------------------
+    # 멀티비트 버스 트랙 (y = 6.35): ADC_DATA[11:0] & Fine Counter [6:0] Hex Bus Diagram
+    # --------------------------------------------------------------------------
+    y_bus = 6.35
+    bus_segments = [
+        (344.0, 360.0, "0xEE7 (3815)\nPedestal",      "#ECEFF1", OKABE_ITO["black"]),
+        (360.0, 368.0, "0xEC0\ndV=39",                "#FFF3CD", OKABE_ITO["vermilion"]),
+        (368.0, 376.0, "0xE3E\nPeak 169",             "#FADBD8", OKABE_ITO["vermilion"]),
+        (376.0, 384.0, "0xEC5\ndV=34",                "#FFF3CD", OKABE_ITO["vermilion"]),
+        (384.0, 416.0, "0xEE1 (3809 ADC)\nTail (dV<30)", "#E8F8F5", OKABE_ITO["bluish_green"]),
+        (416.0, 472.0, "0xEE7 (3815 ADC)\nBaseline Restored", "#ECEFF1", OKABE_ITO["black"]),
+    ]
+    ax.text(t_start - 1.5, y_bus + 0.36, "3b. ADC_BUS[11:0] (12-Bit Hex)",
+            ha="right", va="center", fontsize=9.8, fontweight="bold", color=OKABE_ITO["black"])
+    for b_s, b_e, b_txt, bg_col, txt_col in bus_segments:
+        poly_x = [b_s, b_s + 0.8, b_e - 0.8, b_e, b_e - 0.8, b_s + 0.8]
+        poly_y = [y_bus + 0.36, y_bus + 0.72, y_bus + 0.72, y_bus + 0.36, y_bus, y_bus]
+        ax.fill(poly_x, poly_y, facecolor=bg_col, edgecolor=txt_col, lw=1.5, zorder=3)
+        ax.text((b_s + b_e) / 2.0, y_bus + 0.36, b_txt, ha="center", va="center",
+                fontsize=7.6, fontweight="bold", color=txt_col, zorder=4)
+
+    ax.set_xlim(t_start - 42.0, t_end + 2.0)
+    ax.set_ylim(-1.4, 11.3)
+    ax.set_yticks([])
+    ax.set_xticks(np.arange(t_start, t_end + 1, 8.0))
+    ax.tick_params(axis="x", labelsize=10.5)
+    ax.set_xlabel("FPGA 샘플링 및 클럭 시간 축 (Time) [ns]  (수직 점선 = 125 MHz 클럭 주기 8.0 ns = 4 ADC samples)", fontsize=11.5)
+    ax.set_title("(a) NKFADC500 Mini FPGA 디지털 로직 애널라이저 파형도 (Cycle-Accurate Digital Logic Timing Diagram)",
+                 fontsize=13.0, fontweight="bold", pad=10)
+    ax.spines["top"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    # ==========================================================================
+    # 우측 패널: 16-Bit TLT (Trigger Lookup Table) 불 대수(Boolean Algebra) 진리표 및 수식
+    # ==========================================================================
+    ax_t = fig.add_subplot(gs[0, 1])
+    ax_t.axis("off")
+    ax_t.set_title("(b) 16-Bit TLT 불 대수(Boolean Algebra) 진리표", fontsize=13.0, fontweight="bold", pad=10)
+
+    formula_box = (
+        "■ FPGA 16-Bit TLT (0x20000015) 불 대수 논리식:\n"
+        "  • 입력 변수: 4채널 비교기 출력 (C3, C2, C1, C0) ∈ {0, 1}^4\n"
+        "  • 민텀 인덱스: m = 8·C3 + 4·C2 + 2·C1 + C0  (m = 0 .. 15)\n"
+        "  • 불 대수 정규형(SOP):\n"
+        "      Y_TLT = OR_{m=0..15} [ Bit_m(TLT) AND Minterm_m(C3,C2,C1,C0) ]\n\n"
+        "  (1) 본 실험 설정: TLT = 0xAAAA = 1010_1010_1010_1010_(2)\n"
+        "      ==> 홀수 민텀(C0=1)만 '1' 이므로 불 대수 소거 법칙에 의해:\n"
+        "          Y_TLT(0xAAAA) = C0   (Ch0 단독 자기 트리거)\n\n"
+        "  (2) 4채널 Inclusive-OR: TLT = 0xFFFE = 1111_1111_1111_1110_(2)\n"
+        "      ==> Y_TLT(0xFFFE) = C0 + C1 + C2 + C3\n\n"
+        "  (3) 4채널 Coincidence AND: TLT = 0x8000 = 1000_0000_0000_0000_(2)\n"
+        "      ==> Y_TLT(0x8000) = C3 · C2 · C1 · C0"
+    )
+    ax_t.text(0.02, 0.98, formula_box, transform=ax_t.transAxes, va="top", ha="left",
+              fontsize=9.3, bbox=dict(boxstyle="round,pad=0.5", facecolor="#F8F9FA", edgecolor=OKABE_ITO["blue"], lw=1.5))
+
+    # 16행 진리표 (Truth Table) 렌더링
+    col_labels = ["m", "C3", "C2", "C1", "C0", "0xAAAA\n(Y=C0)", "0xFFFE\n(OR)", "0x8000\n(AND)"]
+    table_data = []
+    cell_colors = []
+    for m in range(16):
+        c3 = (m >> 3) & 1
+        c2 = (m >> 2) & 1
+        c1 = (m >> 1) & 1
+        c0 = m & 1
+        y_aaaa = (0xAAAA >> m) & 1
+        y_fffe = (0xFFFE >> m) & 1
+        y_8000 = (0x8000 >> m) & 1
+        table_data.append([f"{m:2d}", str(c3), str(c2), str(c1), str(c0), str(y_aaaa), str(y_fffe), str(y_8000)])
+        if y_aaaa == 1:
+            cell_colors.append(["#E8F4FD"] * 5 + ["#D4EFDF", "#FDEBD0", "#F2F4F4"])
+        else:
+            cell_colors.append(["#FFFFFF"] * 8)
+
+    tbl = ax_t.table(
+        cellText=table_data,
+        colLabels=col_labels,
+        cellColours=cell_colors,
+        colColours=["#D6EAF8"] * 8,
+        cellLoc="center",
+        bbox=[0.02, 0.01, 0.96, 0.62]
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(8.3)
+
+    out_pdf = os.path.join(out_dir, "fig_fpga_digital_logic_timing.pdf")
+    out_png = os.path.join(out_dir, "fig_fpga_digital_logic_timing.png")
+    fig.savefig(out_pdf, bbox_inches="tight")
+    fig.savefig(out_png, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[OK] 디지털 로직(10101010) 타이밍 다이어그램 및 불 대수 진리표 저장 완료:\n  - PDF: {out_pdf}\n  - PNG: {out_png}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="NKFADC500 Mini FPGA Explorer & Timing Visualizer")
     parser.add_argument("--dat", default="data/20261104_160_temp_EDA_CA_3000_ml_per_l_60co_hv_1700_thr_30_min_20.dat",
@@ -473,6 +664,7 @@ def main():
 
     print_fpga_exploration_report(args.dat, args.root)
     plot_fpga_timing_and_telemetry(args.dat, args.root, args.outdir)
+    plot_digital_boolean_logic_diagram(args.outdir)
 
 
 if __name__ == "__main__":
