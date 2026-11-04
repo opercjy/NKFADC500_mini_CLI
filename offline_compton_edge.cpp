@@ -10,6 +10,7 @@
 #include "TMath.h"
 #include "TString.h"
 #include "TStyle.h"
+#include "TSystem.h"
 #include "TTree.h"
 
 namespace {
@@ -37,6 +38,9 @@ void offline_compton_edge(const char* filename = "data/run_101_prod.root",
     }
 
     gStyle->SetOptFit(1111);
+    if (!gSystem->AccessPathName("lib/libFADC500Objects.so")) {
+        gSystem->Load("lib/libFADC500Objects.so");
+    }
     TFile* f = TFile::Open(filename, "READ");
     if (!f || f->IsZombie()) {
         std::cerr << "\033[1;31m[ERROR]\033[0m Cannot open file: " << filename << std::endl;
@@ -58,11 +62,15 @@ void offline_compton_edge(const char* filename = "data/run_101_prod.root",
 
     const double adc_to_pc = (vpp / 4096.0) * (dt_ns / 50.0) * 1000.0;
     const TString brChg = ResolveComptonBranch(tree, "Charge", targetCh);
+    const double obs_max_pc = tree->GetMaximum(brChg.Data()) * adc_to_pc;
+    if (obs_max_pc > 5.0 && obs_max_pc < x_max_pc * 0.75) {
+        x_max_pc = std::max(30.0, obs_max_pc * 1.15);
+    }
 
     TCanvas* c1 = new TCanvas("c1_compton", "Compton Edge Solver", 1000, 700);
     gPad->SetGrid();
 
-    tree->Draw(Form("%s * %.10f>>hCompton(400, 0, %f)", brChg.Data(), adc_to_pc, x_max_pc), "", "HIST");
+    tree->Draw(Form("%s * %.10f>>hCompton(60, 0, %f)", brChg.Data(), adc_to_pc, x_max_pc), "", "HIST");
     TH1F* hCompton = dynamic_cast<TH1F*>(gDirectory->Get("hCompton"));
     if (!hCompton || hCompton->GetEntries() == 0) {
         std::cerr << "\033[1;31m[ERROR]\033[0m Failed to build Compton histogram for " << brChg << std::endl;
@@ -77,50 +85,48 @@ void offline_compton_edge(const char* filename = "data/run_101_prod.root",
 
     ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2");
 
-    const int startBin = hCompton->FindBin(x_max_pc * 0.10);
+    const int peakBin = hCompton->GetMaximumBin();
+    const double peakPos = hCompton->GetBinCenter(peakBin);
+    const double continuumAmp = std::max(1.0, hCompton->GetMaximum());
     const int lastBin = hCompton->GetNbinsX();
 
-    double continuumAmp = 0.0;
-    for (int b = startBin; b <= lastBin; ++b) {
-        if (hCompton->GetBinContent(b) > continuumAmp) {
-            continuumAmp = hCompton->GetBinContent(b);
-        }
-    }
-    if (continuumAmp <= 0.0) continuumAmp = std::max(1.0, hCompton->GetMaximum());
-
-    double guessEdgePos = x_max_pc * 0.5;
-    for (int b = lastBin; b >= startBin; --b) {
-        if (hCompton->GetBinContent(b) >= continuumAmp * 0.5) {
+    double guessEdgePos = peakPos * 1.18;
+    for (int b = lastBin; b >= peakBin; --b) {
+        if (hCompton->GetBinContent(b) >= continuumAmp * 0.45) {
             guessEdgePos = hCompton->GetBinCenter(b);
             break;
         }
     }
 
     TF1* fitEdge = new TF1("fitEdge", SmearedComptonEdge,
-                           std::max(0.0, guessEdgePos * 0.5),
-                           std::min(x_max_pc, guessEdgePos * 1.35), 4);
+                           std::max(0.0, peakPos * 0.92),
+                           std::min(x_max_pc, guessEdgePos * 1.45), 4);
+    fitEdge->SetNpx(500);
     fitEdge->SetParNames("Amplitude", "Compton_Edge_pC", "Resolution_Sigma", "Background");
-    fitEdge->SetLineColor(kRed);
+    fitEdge->SetLineColor(kRed + 1);
     fitEdge->SetLineWidth(3);
 
-    fitEdge->SetParameters(continuumAmp * 0.5, guessEdgePos, std::max(0.5, guessEdgePos * 0.12), 1.0);
-    fitEdge->SetParLimits(1, guessEdgePos * 0.6, std::min(x_max_pc, guessEdgePos * 1.3));
-    fitEdge->SetParLimits(2, 0.05, x_max_pc * 0.5);
+    fitEdge->SetParameters(continuumAmp * 0.48, guessEdgePos, std::max(1.5, guessEdgePos * 0.12), 0.5);
+    fitEdge->SetParLimits(0, continuumAmp * 0.20, continuumAmp * 0.90);
+    fitEdge->SetParLimits(1, peakPos * 1.02, std::min(x_max_pc, guessEdgePos * 1.30));
+    fitEdge->SetParLimits(2, 1.2, x_max_pc * 0.30);
+    fitEdge->SetParLimits(3, 0.0, continuumAmp * 0.25);
 
     hCompton->Fit("fitEdge", "QR+");
+    fitEdge->Draw("SAME");
 
     const double edge_pc = fitEdge->GetParameter(1);
     const double y_edge = fitEdge->Eval(edge_pc);
 
-    TArrow* arrEdge = new TArrow(edge_pc + (x_max_pc * 0.05), y_edge + (continuumAmp * 0.25), edge_pc, y_edge, 0.015, "|>");
-    arrEdge->SetLineColor(kMagenta);
+    TArrow* arrEdge = new TArrow(edge_pc + (x_max_pc * 0.04), y_edge + (continuumAmp * 0.14), edge_pc, y_edge, 0.015, "|>");
+    arrEdge->SetLineColor(kMagenta + 1);
     arrEdge->SetLineWidth(2);
-    arrEdge->SetFillColor(kMagenta);
+    arrEdge->SetFillColor(kMagenta + 1);
     arrEdge->Draw();
 
-    TLatex* latEdge = new TLatex(edge_pc + (x_max_pc * 0.06), y_edge + (continuumAmp * 0.25), "E_{Compton Edge}");
-    latEdge->SetTextSize(0.035);
-    latEdge->SetTextColor(kMagenta);
+    TLatex* latEdge = new TLatex(edge_pc + (x_max_pc * 0.045), y_edge + (continuumAmp * 0.14), "E_{Compton Edge}");
+    latEdge->SetTextSize(0.033);
+    latEdge->SetTextColor(kMagenta + 1);
     latEdge->SetTextAlign(12);
     latEdge->Draw();
 

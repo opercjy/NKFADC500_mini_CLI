@@ -9,13 +9,16 @@
 #include "TPaveText.h"
 #include "TString.h"
 #include "TStyle.h"
+#include "TSystem.h"
 #include "TTree.h"
 
 namespace {
-TString ResolveSpeBranch(TTree* tree, const char* base, int ch) {
-    TString scalarName = Form("%s_Ch%d", base, ch);
+TString ResolveSpeBranch(TTree* tree, int ch) {
+    TString qtotName = Form("Qtotal_Ch%d", ch);
+    if (tree->GetBranch(qtotName)) return qtotName;
+    TString scalarName = Form("Charge_Ch%d", ch);
     if (tree->GetBranch(scalarName)) return scalarName;
-    return Form("%s[%d]", base, ch);
+    return Form("Charge[%d]", ch);
 }
 } // namespace
 
@@ -40,6 +43,9 @@ void offline_spe(const char* filename = "data/run_101_prod.root", int targetCh =
     }
 
     gStyle->SetOptFit(1111);
+    if (!gSystem->AccessPathName("lib/libFADC500Objects.so")) {
+        gSystem->Load("lib/libFADC500Objects.so");
+    }
 
     TFile* f = TFile::Open(filename, "READ");
     if (!f || f->IsZombie()) {
@@ -61,11 +67,11 @@ void offline_spe(const char* filename = "data/run_101_prod.root", int targetCh =
     if (dt_ns <= 0.0) dt_ns = 2.0;
 
     const double adc_to_pc = (vpp / 4096.0) * (dt_ns / 50.0) * 1000.0;
-    const TString brChg = ResolveSpeBranch(tree, "Charge", targetCh);
+    const TString brChg = ResolveSpeBranch(tree, targetCh);
 
     const double max_adc = tree->GetMaximum(brChg.Data());
     const double max_pc = max_adc * adc_to_pc;
-    const double full_range_max = (max_pc > 750.0) ? max_pc * 1.1 : 750.0;
+    const double full_range_max = std::max(25.0, max_pc * 1.15);
 
     TCanvas* c1 = new TCanvas("c1_spe", "Advanced PMT SPE Calibration (MINUIT2)", 1400, 600);
     c1->Divide(2, 1);
@@ -85,15 +91,15 @@ void offline_spe(const char* filename = "data/run_101_prod.root", int targetCh =
     const double mean_charge = hFull->GetMean();
     const bool isScintillator = (mean_charge > 10.0 || max_pc > 80.0);
 
-    TPaveText* pt = new TPaveText(0.35, 0.65, 0.88, 0.88, "NDC");
+    TPaveText* pt = new TPaveText(0.32, 0.68, 0.74, 0.88, "NDC");
     if (isScintillator) {
         pt->AddText("Data Type: SCINTILLATOR / SOURCE");
         pt->AddText("High flux & broad spectrum detected.");
         pt->AddText("Reduce optical flux (Laser/LED) for pure SPE.");
         pt->SetTextColor(kRed + 1);
     } else {
-        pt->AddText("Data Type: LASER / LED (SPE Mode)");
-        pt->AddText("Low flux detected. Suitable for SPE fit.");
+        pt->AddText("Data Type: PMT Low-Charge / SPE Mode");
+        pt->AddText("Low-charge pulses suitable for multi-PE fit.");
         pt->SetTextColor(kGreen + 2);
     }
     pt->SetFillColor(kWhite);
@@ -104,53 +110,62 @@ void offline_spe(const char* filename = "data/run_101_prod.root", int targetCh =
     c1->cd(2);
     gPad->SetLogy();
     gPad->SetGrid();
-    const double fit_max_pc = 25.0;
+    const double fit_max_pc = 18.0;
 
-    tree->Draw(Form("%s * %.10f>>hSPE(200, -2.5, %f)", brChg.Data(), adc_to_pc, fit_max_pc), "", "HIST");
+    tree->Draw(Form("%s * %.10f>>hSPE(90, 0.0, %f)", brChg.Data(), adc_to_pc, fit_max_pc), "", "HIST");
     TH1F* hSPE = dynamic_cast<TH1F*>(gDirectory->Get("hSPE"));
     if (!hSPE) return;
     hSPE->SetTitle(Form("Low Charge Region (Pedestal + 1PE + 2PE Fit) - Ch %d;Charge (pC);Counts", targetCh));
     hSPE->SetLineColor(kAzure + 1);
     hSPE->SetFillColor(kAzure + 1);
     hSPE->SetFillStyle(3004);
-    hSPE->SetMaximum(std::max(10.0, hSPE->GetMaximum() * 10.0));
+    hSPE->SetMaximum(std::max(10.0, hSPE->GetMaximum() * 6.0));
 
     ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2");
 
     const double ped_peak = std::max(1.0, hSPE->GetMaximum());
     const double ped_pos = hSPE->GetBinCenter(hSPE->GetMaximumBin());
 
-    TF1* fitFunc = new TF1("fitFunc", MultiGaussianFit, -1.0, fit_max_pc, 7);
+    TF1* fitFunc = new TF1("fitFunc", MultiGaussianFit, 1.2, 12.0, 7);
+    fitFunc->SetNpx(500);
     fitFunc->SetParNames("Ped_Norm", "Ped_Mean", "Ped_Sigma", "1PE_Norm", "1PE_Mean", "1PE_Sigma", "2PE_Norm");
-    fitFunc->SetLineColor(kMagenta);
-    fitFunc->SetLineWidth(2);
+    fitFunc->SetLineColor(kMagenta + 1);
+    fitFunc->SetLineWidth(3);
 
-    fitFunc->SetParameters(ped_peak, ped_pos, 0.25, ped_peak * 0.08, ped_pos + 0.55, 0.25, ped_peak * 0.01);
+    fitFunc->SetParameters(ped_peak, ped_pos, 0.30, ped_peak * 0.15, ped_pos + 1.4, 0.55, ped_peak * 0.05);
     fitFunc->SetParLimits(1, ped_pos - 0.5, ped_pos + 0.5);
-    fitFunc->SetParLimits(2, 0.02, 2.0);
-    fitFunc->SetParLimits(4, ped_pos + 0.15, fit_max_pc * 0.8);
-    fitFunc->SetParLimits(5, 0.05, 5.0);
+    fitFunc->SetParLimits(2, 0.10, 1.2);
+    fitFunc->SetParLimits(4, ped_pos + 0.6, ped_pos + 3.5);
+    fitFunc->SetParLimits(5, 0.20, 2.0);
+    fitFunc->SetParLimits(6, 0.5, ped_peak * 0.5);
 
     std::cout << "\n[MINUIT2] Executing Pedestal + Multi-PE Fit..." << std::endl;
     hSPE->Fit("fitFunc", "QR+");
+    fitFunc->Draw("SAME");
 
-    TF1* fPed = new TF1("fPed", "gaus", -2.5, fit_max_pc);
+    TF1* fPed = new TF1("fPed", "gaus", 0.0, fit_max_pc);
+    fPed->SetNpx(500);
     fPed->SetParameters(fitFunc->GetParameter(0), fitFunc->GetParameter(1), fitFunc->GetParameter(2));
     fPed->SetLineColor(kBlack);
+    fPed->SetLineWidth(2);
     fPed->SetLineStyle(2);
     fPed->Draw("SAME");
 
-    TF1* f1pe = new TF1("f1pe", "gaus", -2.5, fit_max_pc);
+    TF1* f1pe = new TF1("f1pe", "gaus", 0.0, fit_max_pc);
+    f1pe->SetNpx(500);
     f1pe->SetParameters(fitFunc->GetParameter(3), fitFunc->GetParameter(4), fitFunc->GetParameter(5));
-    f1pe->SetLineColor(kRed);
+    f1pe->SetLineColor(kRed + 1);
+    f1pe->SetLineWidth(2);
     f1pe->SetLineStyle(2);
     f1pe->Draw("SAME");
 
-    TF1* f2pe = new TF1("f2pe", "gaus", -2.5, fit_max_pc);
+    TF1* f2pe = new TF1("f2pe", "gaus", 0.0, fit_max_pc);
+    f2pe->SetNpx(500);
     f2pe->SetParameters(fitFunc->GetParameter(6),
                         fitFunc->GetParameter(1) + 2.0 * (fitFunc->GetParameter(4) - fitFunc->GetParameter(1)),
                         fitFunc->GetParameter(5) * TMath::Sqrt(2.0));
     f2pe->SetLineColor(kGreen + 2);
+    f2pe->SetLineWidth(2);
     f2pe->SetLineStyle(2);
     f2pe->Draw("SAME");
 

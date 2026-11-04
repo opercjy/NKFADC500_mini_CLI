@@ -205,12 +205,20 @@ void Fadc500Device::VerifyRegistersAndLogPedestals(FadcBD* bdConfig) {
             static_cast<unsigned long>(NoticeFadc500Spec::kMaxDlyNs),
             static_cast<unsigned long>(std::max(0, bdConfig->GetCW(ch)) + std::max(0, bdConfig->GetDLY(ch))));
 
+        // Legacy NKFADC500 Mini FPGA quantizes DLY (0x20000007) to 8 ns steps (& ~0x7) and adds a fixed
+        // +80 ns (+0x50 = 10 clocks @ 125 MHz) internal pipeline offset to the 16-bit register word:
+        // raw_read = (raw_written & ~0x7UL) + 0x50UL.
+        const unsigned long raw_dly_written = ((exp_dly / 1000UL) << 10) | (exp_dly % 1000UL);
+        const unsigned long raw_dly_hw_exp  = (raw_dly_written & ~0x7UL) + 0x50UL;
+        const unsigned long exp_dly_hw_api  = ((raw_dly_hw_exp >> 10) * 1000UL) + (raw_dly_hw_exp & 0x3FFUL);
+        const bool dly_ok = (rb_dly == exp_dly) || (rb_dly == exp_dly_hw_api);
+
         if (rb_thr != static_cast<unsigned long>(bdConfig->GetTHR(ch)) ||
-            rb_dly != exp_dly ||
+            !dly_ok ||
             rb_tm  != static_cast<unsigned long>(bdConfig->GetTMODE(ch))) {
             ELog::Print(ELog::WARNING,
-                Form("[HW VERIFY] Ch%lu readback mismatch: THR=%lu(%d), DLY=%lu(%lu), TM=%lu(%d)",
-                     cid, rb_thr, bdConfig->GetTHR(ch), rb_dly, exp_dly, rb_tm, bdConfig->GetTMODE(ch)));
+                Form("[HW VERIFY] Ch%lu readback mismatch: THR=%lu(%d), DLY=%lu(exp %lu / hw %lu), TM=%lu(%d)",
+                     cid, rb_thr, bdConfig->GetTHR(ch), rb_dly, exp_dly, exp_dly_hw_api, rb_tm, bdConfig->GetTMODE(ch)));
         }
 
         if (ped != 0xFFFFFFFFUL && (ped <= 10UL || ped >= 4085UL)) {

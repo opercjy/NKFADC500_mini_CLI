@@ -11,6 +11,7 @@
 #include "TPaveText.h"
 #include "TString.h"
 #include "TStyle.h"
+#include "TSystem.h"
 #include "TTree.h"
 
 namespace {
@@ -35,6 +36,9 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
 
     gStyle->SetOptStat(111111);
     gStyle->SetPalette(kBird);
+    if (!gSystem->AccessPathName("lib/libFADC500Objects.so")) {
+        gSystem->Load("lib/libFADC500Objects.so");
+    }
 
     TFile* f = TFile::Open(filename, "READ");
     if (!f || f->IsZombie()) {
@@ -66,6 +70,11 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     const TString brPsd = Form("PsdRatio_Ch%d", targetCh);
     const TString brQtot = Form("Qtotal_Ch%d", targetCh);
 
+    const double obsMaxAmp = std::max(100.0, tree->GetMaximum(brAmp.Data()));
+    const double obsMaxPc  = std::max(20.0, tree->GetMaximum(brChg.Data()) * adc_to_pc);
+    const double maxAmpAxis = std::min(4200.0, std::max(250.0, (obsMaxAmp > 300.0 ? 280.0 : obsMaxAmp * 1.15)));
+    const double maxPcAxis  = std::min(1500.0, std::max(45.0, (obsMaxPc > 60.0 ? 50.0 : obsMaxPc * 1.15)));
+
     TCanvas* c1 = new TCanvas("c1", "NKFADC500 Educational Analysis Dashboard", 1600, 1000);
     c1->Divide(3, 2);
 
@@ -74,8 +83,8 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     gPad->SetGrid();
     gPad->SetRightMargin(0.12);
     if (tree->GetBranch(brWaveDrop) && tree->GetBranch(brWaveTime)) {
-        tree->Draw(Form("%s:%s>>hWave2D(%d, 0, %f, 200, -100, 4200)",
-                        brWaveDrop.Data(), brWaveTime.Data(), ndp, maxTime), "", "colz");
+        tree->Draw(Form("%s:%s>>hWave2D(%d, 0, %f, 200, -30, %f)",
+                        brWaveDrop.Data(), brWaveTime.Data(), ndp, maxTime, maxAmpAxis), "", "colz");
         if (TH2F* hWave2D = dynamic_cast<TH2F*>(gDirectory->Get("hWave2D"))) {
             hWave2D->SetTitle(Form("1. Waveform Persistence (Ch %d);Time (ns);Voltage Drop (ADC)", targetCh));
             hWave2D->SetStats(0);
@@ -93,7 +102,7 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     c1->cd(2);
     gPad->SetGrid();
     gPad->SetLogy();
-    tree->Draw(Form("%s>>hAmp(500, 0, 4200)", brAmp.Data()), "", "HIST");
+    tree->Draw(Form("%s>>hAmp(150, 0, %f)", brAmp.Data(), maxAmpAxis), "", "HIST");
     if (TH1F* hAmp = dynamic_cast<TH1F*>(gDirectory->Get("hAmp"))) {
         hAmp->SetTitle("2. Amplitude Distribution;Amplitude (ADC);Counts");
         hAmp->SetFillColor(kAzure - 9);
@@ -108,11 +117,11 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     c1->cd(3);
     gPad->SetGrid();
     gPad->SetLogy();
-    TH1F* hDeltaT = new TH1F("hDeltaT", "3. Time Between Events (#Delta t);#Delta t (#mu s);Counts", 500, 0, 1000);
+    TH1F* hDeltaT = new TH1F("hDeltaT", "3. Time Between Events (#Delta t);#Delta t (#mu s);Counts", 120, 0, 40000);
     hDeltaT->SetFillColor(kTeal - 9);
 
-    if (TBranch* brTrig = tree->GetBranch("TriggerTime")) {
-        TLeaf* lfTrig = tree->GetLeaf("TriggerTime");
+    if (TBranch* brTrig = tree->GetBranch("LocalTriggerTime")) {
+        TLeaf* lfTrig = tree->GetLeaf("LocalTriggerTime");
         const Long64_t nEntries = tree->GetEntries();
         ULong64_t prevTime = 0;
         bool isFirst = true;
@@ -142,7 +151,7 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     c1->cd(4);
     gPad->SetGrid();
     gPad->SetLogy();
-    tree->Draw(Form("%s * %.10f>>hChargeRaw(500, 0, 500)", brChg.Data(), adc_to_pc), "", "HIST");
+    tree->Draw(Form("%s * %.10f>>hChargeRaw(150, 0, %f)", brChg.Data(), adc_to_pc, maxPcAxis), "", "HIST");
     TH1F* hChargeRaw = dynamic_cast<TH1F*>(gDirectory->Get("hChargeRaw"));
     if (hChargeRaw) {
         hChargeRaw->SetTitle("4. Charge Spectrum (Raw vs Amp Cut);Charge (pC);Counts");
@@ -152,7 +161,7 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     }
 
     TCut cutAmp = Form("%s > %f", brAmp.Data(), ampCut);
-    tree->Draw(Form("%s * %.10f>>hChargeCut(500, 0, 500)", brChg.Data(), adc_to_pc), cutAmp, "HIST SAME");
+    tree->Draw(Form("%s * %.10f>>hChargeCut(150, 0, %f)", brChg.Data(), adc_to_pc, maxPcAxis), cutAmp, "HIST SAME");
     TH1F* hChargeCut = dynamic_cast<TH1F*>(gDirectory->Get("hChargeCut"));
     if (hChargeCut) {
         hChargeCut->SetLineColor(kRed + 1);
@@ -160,7 +169,7 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
         hChargeCut->SetFillStyle(1001);
     }
 
-    TLegend* leg1 = new TLegend(0.58, 0.75, 0.88, 0.88);
+    TLegend* leg1 = new TLegend(0.34, 0.74, 0.66, 0.88);
     if (hChargeRaw) leg1->AddEntry(hChargeRaw, "Raw (All)", "f");
     if (hChargeCut) leg1->AddEntry(hChargeCut, Form("Amp > %.0f ADC", ampCut), "f");
     leg1->Draw();
@@ -169,8 +178,8 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     c1->cd(5);
     gPad->SetGrid();
     gPad->SetRightMargin(0.12);
-    tree->Draw(Form("%s:(%s * %.10f)>>h2D(200, 0, 500, 200, -100, 4200)",
-                    brAmp.Data(), brChg.Data(), adc_to_pc), "", "colz");
+    tree->Draw(Form("%s:(%s * %.10f)>>h2D(150, 0, %f, 150, 0, %f)",
+                    brAmp.Data(), brChg.Data(), adc_to_pc, maxPcAxis, maxAmpAxis), "", "colz");
     if (TH2F* h2D = dynamic_cast<TH2F*>(gDirectory->Get("h2D"))) {
         h2D->SetTitle("5. Amp vs Charge Scatter;Charge (pC);Amplitude (ADC)");
         h2D->SetStats(0);

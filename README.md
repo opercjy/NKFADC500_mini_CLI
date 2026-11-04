@@ -360,24 +360,24 @@ printf("Ch0 THR = %d ADC, DLY = %d ns, HW PED = %d ADC\n", bd->GetTHR(0), bd->Ge
 
 ---
 
-### 11.2 실제 검출기 측정 파형 및 CERN ROOT 오프라인 물리 분석 화면 (Measured Detector Data Plots)
+### 11.2 실제 검출기 측정 파형 및 CERN ROOT 오프라인 물리 분석 화면 (Measured Detector Data Plots — ORTEC `-1700 V`, `Ch 0`)
 
-아래 화면들은 실제 NKFADC500 Mini 장비와 검출기 테스트벤치에서 측정·수집된 실시간 파형, 단일 광전자(SPE) 캘리브레이션, 컴프턴 엣지(Compton Edge) 피팅, 및 2D 파형 구별(PSD) 실측 결과입니다.
+아래 화면들은 측정 컴퓨터(`cpnrdaq4`)에서 구형 `NKFADC500 Mini` (`SID=1`, $500\text{ MS/s}$, $12\text{-bit}$, $2.5\text{ V}_{\text{pp}}$)의 **전면 `1`번 포트(`Ch 0`)에 BNC 케이블로 검출기를 단독 연결하고 수동 ORTEC 고전압 공급기로 `-1700 V`를 인가**하여 실제 수집·변환한 데이터(`hv1700_ch0_thr40_prod.root`, `hv1700_ch1_check_prod.root`)로부터 생성된 실시간 파형, 단일 광전자(SPE)/다중 광전자 피팅, 컴프턴 엣지(Compton Edge) 피팅, 및 2D 파형 잔상(Persistence) 실측 결과입니다.
 
-1. **실시간 파형 및 전하 스펙트럼 모니터 (`online_nkfadc500`)**:
-   <img width="1620" height="840" alt="FADC500 LIVE Waveform & Spectrum Monitor" src="https://github.com/user-attachments/assets/479fa003-bcf3-45d4-88e6-4eeb6a5af267" />
+1. **실시간 4채널 파형 및 전하 스펙트럼 모니터 (`online_nkfadc500` — `Ch 0` `-1700 V` 음극성 PMT 펄스 및 `Ch 1–3` 베이스라인 대조)**:
+   <img width="1620" alt="FADC500 LIVE Waveform & Spectrum Monitor (ORTEC -1700V on Ch0)" src="./docs/images/exp_01_live_waveform_monitor.png" />
 
-2. **교육·진단용 종합 대시보드 및 $\Delta t$ 분석 (`offline_anal_edu.cpp`)**:
-   <img width="1620" height="1040" alt="NKFADC500 Educational Analysis Dashboard" src="https://github.com/user-attachments/assets/2fd31349-56b7-4d9b-9a19-f5a6300b1819" />
+2. **교육·진단용 6-Pad 종합 대시보드 및 사건 간 도착 시간차 $\Delta t$ 분포 (`offline_anal_edu.cpp`)**:
+   <img width="1600" alt="NKFADC500 Educational Analysis Dashboard (Ch0 HV -1700V)" src="./docs/images/exp_02_offline_anal_edu.png" />
 
-3. **단일 광전자(SPE) 피팅 및 PMT 절대 이득 교정 (`offline_spe.cpp`)**:
-   <img width="1420" height="640" alt="Advanced PMT SPE Calibration" src="https://github.com/user-attachments/assets/6302864c-0d4d-4d2d-9111-0757d465f2de" />
+3. **저전하 영역 다중 광전자(Pedestal + 1PE + 2PE) `MINUIT2` 피팅 및 이득 교정 (`offline_spe.cpp`)**:
+   <img width="1400" alt="Advanced PMT SPE Calibration (Ch0 HV -1700V)" src="./docs/images/exp_03_offline_spe.png" />
 
-4. **채널별 파형 잔상(Persistence), 전하·진폭 분포 및 2D PSD 분석 (`offline_anal_500.cpp`)**:
-   <img width="1420" height="940" alt="Channel Comprehensive Analysis" src="https://github.com/user-attachments/assets/a9b391dc-5b15-4d8b-9183-6acb0cf3da12" />
+4. **채널 0 파형 잔상(Persistence, 주 펄스 `t=374 ns` 및 후속 이온 애프터펄스 관측), 진폭·전하 분포 및 2D 상관관계 분석 (`offline_anal_500.cpp`)**:
+   <img width="1400" alt="Channel 0 Comprehensive Analysis (Ch0 HV -1700V)" src="./docs/images/exp_04_offline_anal_500.png" />
 
-5. **감마선 컴프턴 엣지(Compton Edge) 상보 오차함수($\text{erfc}$) 정밀 피팅 (`offline_compton_edge.cpp`)**:
-   <img width="1020" height="740" alt="Compton Edge Solver" src="https://github.com/user-attachments/assets/b60cfbac-8913-41c8-bb8a-0bc9c070f654" />
+5. **전하 연속체 끝단(Compton Edge) 상보 오차함수($\text{erfc}$) 정밀 피팅 (`offline_compton_edge.cpp`)**:
+   <img width="1000" alt="Compton Edge Solver (Ch0 HV -1700V)" src="./docs/images/exp_05_offline_compton_edge.png" />
 
 ---
 
