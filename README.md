@@ -126,7 +126,7 @@ $$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + 
    - **Peak Sum OR (`Bit 3`, `tep2`, $\text{TMODE}=8$)**: Peak Sum 조건의 OR 결합 트리거.
 2. **16-Bit Trigger Lookup Table (`TLT`) 진리표 인코딩**:
    - 4채널 입력 조합 $(C_3, C_2, C_1, C_0) \in \{0, 1\}^4$의 16가지 상태에 대한 불리언 함수 $F(C_3,C_2,C_1,C_0) = \text{Bit}_{(8C_3 + 4C_2 + 2C_1 + C_0)}(\text{TLT})$로 정의됩니다:
-     $$\text{TLT} = \texttt{0xFFFE} \implies C_0 \lor C_1 \lor C_2 \lor C_3\ (\text{Any-Channel Inclusive OR}), \qquad \text{TLT} = \texttt{0x8000} \implies C_0 \land C_1 \land C_2 \land C_3\ (\text{4-Fold Coincidence})$$
+     $$\text{TLT} = \mathtt{0xFFFE} \implies C_0 \lor C_1 \lor C_2 \lor C_3\ (\text{Any-Channel Inclusive OR}), \qquad \text{TLT} = \mathtt{0x8000} \implies C_0 \land C_1 \land C_2 \land C_3\ (\text{4-Fold Coincidence})$$
 3. **5-Bit Coarse Delay 레지스터 오버플로 경계 조건**:
    - 벤더 드라이버([`NoticeNKFADC500.c:179`](./notice_nkfadc500_4/notice/src/nkfadc500/nkfadc500/NoticeNKFADC500.c))는 총 지연 시간 $D_{\text{tot}} = \text{CW} + \text{DLY}$ [$\text{ns}$]를 FPGA 레지스터 `0x20000007`에 기록할 때 다음과 같이 상위 비트와 하위 비트로 분할합니다:
      $$\text{REG}_{\text{DLY}} = \left(\left\lfloor\frac{\text{CW} + \text{DLY}}{1000}\right\rfloor \ll 10\right) \,\Big|\, \left((\text{CW} + \text{DLY}) \bmod 1000\right)$$
@@ -149,8 +149,8 @@ $$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + 
 </p>
 
 1. **FPGA `DLY` 레지스터(`0x20000007`)의 $8\text{ ns}$ 양자화 및 `+80 ns` (`+0x50`) 내부 파이프라인 오프셋**:
-   - 호스트가 `NKFADC500write_DLY(sid, ch, dly)`를 통해 $\text{raw\_written} = \big(\lfloor(\text{CW}+\text{DLY})/1000\rfloor \ll 10\big) \mid \big((\text{CW}+\text{DLY}) \bmod 1000\big)$을 기록하면, 구형 미니 박스 FPGA는 $125\text{ MHz}$ 시스템 클럭($8\text{ ns}$)에 맞추어 하위 3비트를 내림(`& ~0x7UL`)한 뒤 **내부 트리거 비교기·파이프라인 지연 시간 `+80 ns` (`+0x50`, $125\text{ MHz}$ 10클럭)**를 하드웨어적으로 가산하여 저장 및 리드백합니다:
-     $$\text{raw\_readback} = (\text{raw\_written} \ \& \ \sim\texttt{0x7UL}) + \texttt{0x50UL}$$
+   - 호스트가 `NKFADC500write_DLY(sid, ch, dly)`를 통해 $D_{\text{written}} = \big(\lfloor(\text{CW}+\text{DLY})/1000\rfloor \ll 10\big) \mid \big((\text{CW}+\text{DLY}) \bmod 1000\big)$을 기록하면, 구형 미니 박스 FPGA는 $125\text{ MHz}$ 시스템 클럭($8\text{ ns}$)에 맞추어 하위 3비트를 내림(`& ~0x7UL`)한 뒤 **내부 트리거 비교기·파이프라인 지연 시간 `+80 ns` (`+0x50`, $125\text{ MHz}$ 10클럭)**를 하드웨어적으로 가산하여 저장 및 리드백합니다(`raw_readback = (raw_written & ~0x7UL) + 0x50UL`):
+     $$D_{\text{readback}} = \left\lfloor \frac{D_{\text{written}}}{8} \right\rfloor \times 8 + 80\text{ ns} \quad \Longleftrightarrow \quad \mathtt{raw}_{\text{readback}} = \big(\mathtt{raw}_{\text{written}} \land \sim\mathtt{0x7UL}\big) + \mathtt{0x50UL}$$
    - 예: $\text{CW}(100\text{ ns}) + \text{DLY}(400\text{ ns}) = 500\text{ ns}$ (`0x01F4`) 인가 시 FPGA 레지스터(`0x20000007`) 리드백은 $496 + 80 = \mathbf{576\text{ ns}}$ (`0x0240`)이며, 이때 $992\text{ ns}$ ($\text{RL}=8$, $496\text{ samples}$) 캡처 윈도우 내부에서 실제 음극성 PMT 피크는 $t_{\text{peak}} \approx 370\text{--}372\text{ ns}$ 지점에 정밀 정렬됩니다.
 
 2. **FPGA VME/USB3 레지스터 주소 공간 (`0x20000000` ~ `0x2000001F`)**:
@@ -163,7 +163,7 @@ $$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + 
 | `0x20000003` | `DRAMON / ADCCAL` | Global | 온보드 $64\text{ MB}$ DDR SDRAM 활성화(`1`) 및 ADC 캘리브레이션 스트로브 |
 | `0x20000004` | `DACOFF` (Offset DAC) | Per-Ch (`+ch<<16`) | 12-bit 아날로그 베이스라인 오프셋 DAC ($0\sim 4095$), `3600` 설정 시 페데스탈 $\approx 3815\text{ ADC}$ |
 | `0x20000005` | `PED` (Hardware Pedestal) | Per-Ch (`+ch<<16`) | FPGA 내부 측정 하드웨어 페데스탈 리드백 레지스터 (12-bit ADC) |
-| `0x20000007` | `DLY` (Trigger Delay) | Per-Ch (`+ch<<16`) | 프리트리거 지연 레지스터; 리드백 $= (\text{written}\ \&\ \sim\texttt{0x7}) + \texttt{0x50}$ (`+80 ns` 오프셋) |
+| `0x20000007` | `DLY` (Trigger Delay) | Per-Ch (`+ch<<16`) | 프리트리거 지연 레지스터; 리드백 `= (written & ~0x7) + 0x50` ($+80\text{ ns}$ 오프셋) |
 | `0x20000008` | `THR` (Threshold) | Per-Ch (`+ch<<16`) | 자기 트리거 파고 임계값 ($1\sim 4095\text{ ADC}$) 또는 Peak-Sum 임계값 (26-bit) |
 | `0x20000009` | `POL / AMODE / ZEROSUP` | Per-Ch (`+ch<<16`) | 극성(`0`=Negative PMT, `1`=Positive), 성형 모드(`AMODE`), Zero-Suppression |
 | `0x2000000A` | `PSW` (Peak Sum Width) | Per-Ch (`+ch<<16`) | Peak-Sum 이동 적분 폭 ($2\sim 16{,}382\text{ ns}$) |
@@ -187,7 +187,7 @@ $$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + 
      - **Bytes `0, 4, 8, 12`**: 채널당 패킷 바이트 길이 `data_length` ($= 32 + 2 N_s$; $\text{RL}=8 \implies 1024\text{ B/ch}$, 총 $4096\text{ B/event}$)
      - **Bytes `16..23`**: 4채널 FPGA 하드웨어 측정 페데스탈 `hw_pedestal[0..3]` (16-bit LE)
      - **Byte `24`**: 하위 니블 `trigger_type` (`h[24] & 0x0F`), 상위 니블 `trigger_destination` (`(h[24] >> 4) & 0x0F`)
-     - **Bytes `28, 32, 36, 40` & `44, 48, 52, 56`**: 전역 TCB 트리거 번호(`tcb_trig_num`) 및 TCB 시각($8\text{ ns}\cdot\texttt{h[44]} + 1000\text{ ns}\cdot\text{Coarse}_{24\text{b}}$)
+     - **Bytes `28, 32, 36, 40` & `44, 48, 52, 56`**: 전역 TCB 트리거 번호(`tcb_trig_num`) 및 TCB 시각($8\text{ ns}\cdot N_{\text{fine,TCB}} + 1000\text{ ns}\cdot N_{\text{coarse,24b}}$)
      - **Byte `60` & Bytes `64..67`**: 보드 `MID` (`1`) 및 하드웨어 채널 식별 태그 `{1, 2, 3, 4}`
      - **Bytes `68, 72, 76, 80`**: 로컬 FPGA 트리거 번호 `local_trig_num` (32-bit)
      - **Bytes `84, 88, 92, 96`**: 4채널 자기 트리거 발화 패턴 `trigger_pattern` (**4-bit 니블 인코딩**: `0x0001`=Ch1, `0x0010`=Ch2, `0x0100`=Ch3, `0x1000`=Ch4)
