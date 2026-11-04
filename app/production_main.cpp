@@ -58,9 +58,14 @@ public:
 
 int InferRunNumberFromFilename(const std::string& filepath, int fallbackRun) {
     const std::string stem = std::filesystem::path(filepath).stem().string();
-    // Match <prefix>_<run>, <prefix>_<run>_<subrun>, or <prefix>_<run>_thr<N>
-    static const std::regex re_run(R"(^.+?_(\d+)(?:_(?:thr\d+|\d{3}))?$)", std::regex::icase);
+    // Priority 1: <YYYYMMDD>_<run>_... (e.g. 20261104_160_temp_EDA_...)
+    static const std::regex re_date_run(R"(^\d{8}_(\d+)_.*$)", std::regex::icase);
     std::smatch m;
+    if (std::regex_match(stem, m, re_date_run)) {
+        try { return std::stoi(m[1].str()); } catch (...) {}
+    }
+    // Priority 2: <prefix>_<run>, <prefix>_<run>_<subrun>, or <prefix>_<run>_thr<N>
+    static const std::regex re_run(R"(^.+?_(\d+)(?:_(?:thr\d+|\d{3}))?$)", std::regex::icase);
     if (std::regex_match(stem, m, re_run)) {
         try { return std::stoi(m[1].str()); } catch (...) {}
     }
@@ -373,10 +378,11 @@ int main(int argc, char** argv) {
             tree->Branch(Form("HwPedestal_Ch%d", i), &hwPedestal[i], Form("HwPedestal_Ch%d/I", i));
 
             if (saveWaveform) {
-                tree->Branch(Form("wTime_Ch%d", i), &wTime[i]);
-                tree->Branch(Form("wDrop_Ch%d", i), &wDrop[i]);
+                tree->Branch(Form("wTime_Ch%d", i), &wTime[i], 65536);
+                tree->Branch(Form("wDrop_Ch%d", i), &wDrop[i], 65536);
             }
         }
+        tree->SetAutoFlush(5000);
 
         // Pre-allocate reusable buffers outside event loop (eliminates 5 * N_events heap allocations!)
         unsigned char header[128];
@@ -384,6 +390,7 @@ int main(int argc, char** argv) {
         payload.reserve(16384);
         std::array<std::vector<uint16_t>, 4> rawWave;
         for (int ch = 0; ch < 4; ++ch) rawWave[ch].reserve(2048);
+        int cachedTimeLen = -1;
 
         // PSD integration offsets around peak index ([-10 ns, +120 ns] total; [+16 ns, +120 ns] tail)
         const int psdPrePts       = std::max(1, static_cast<int>(std::llround(10.0 / dt_ns)));
@@ -455,9 +462,17 @@ int main(int argc, char** argv) {
             for (int ch = 0; ch < 4; ++ch) {
                 rawWave[ch].resize(recordLength);
                 if (saveWaveform) {
-                    wTime[ch].resize(recordLength);
                     wDrop[ch].resize(recordLength);
                 }
+            }
+            if (saveWaveform && cachedTimeLen != recordLength) {
+                for (int ch = 0; ch < 4; ++ch) {
+                    wTime[ch].resize(recordLength);
+                    for (int pt = 0; pt < recordLength; ++pt) {
+                        wTime[ch][pt] = static_cast<double>(pt) * dt_ns;
+                    }
+                }
+                cachedTimeLen = recordLength;
             }
 
             const unsigned char* p = payload.data();
@@ -504,7 +519,6 @@ int main(int argc, char** argv) {
                         maxIdx = pt;
                     }
                     if (saveWaveform) {
-                        wTime[ch][pt] = static_cast<double>(pt) * dt_ns;
                         wDrop[ch][pt] = drop;
                     }
                 }

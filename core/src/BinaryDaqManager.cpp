@@ -293,6 +293,9 @@ void BinaryDaqManager::ConsumerWorker(const std::string& outFileName, int maxEve
         double ui_elapsed_sec = std::chrono::duration<double>(current_time - ui_timer).count();
 
         if (ui_elapsed_sec >= 0.5) {
+            // Flush stdio buffer to OS page cache every 0.5 s so live online monitor tails with zero lag
+            std::fflush(fp);
+
             double speed_mbps = ((total_written_bytes - last_print_bytes) / 1048576.0) / ui_elapsed_sec;
             double evt_rate = static_cast<double>(current_events - last_print_events) / ui_elapsed_sec;
             double total_elapsed = std::chrono::duration<double>(current_time - perf_start_time).count();

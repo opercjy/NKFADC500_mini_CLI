@@ -23,6 +23,7 @@
 
 namespace {
 bool kbhit() {
+    if (!isatty(STDIN_FILENO) || !std::cin.good()) return false;
     struct timeval tv = {0L, 0L};
     fd_set fds;
     FD_ZERO(&fds);
@@ -55,7 +56,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    FILE* fp = std::fopen(inputFile.c_str(), "rb");
+    FILE* fp = nullptr;
+    for (int wait_iter = 0; wait_iter < 50; ++wait_iter) {
+        fp = std::fopen(inputFile.c_str(), "rb");
+        if (fp) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
     if (!fp) {
         ELog::Print(ELog::FATAL, Form("Cannot open live binary file: %s", inputFile.c_str()));
         return 1;
@@ -73,7 +79,7 @@ int main(int argc, char** argv) {
              streamCfg.dt_ns, streamCfg.polarity[0]));
 
     TApplication app("app", &argc, argv);
-    TCanvas* c1 = new TCanvas("c1", "FADC500 LIVE Waveform & Spectrum Monitor", 1600, 800);
+    TCanvas* c1 = new TCanvas("c1", "FADC500 LIVE Waveform & Spectrum Profile Monitor", 1600, 860);
     c1->Divide(4, 2);
 
     TH1I* hWave[4];
@@ -81,16 +87,18 @@ int main(int argc, char** argv) {
     TLine* lBase[4];
 
     for (int i = 0; i < 4; i++) {
-        hWave[i] = new TH1I(Form("hWave_%d", i), Form("Channel %d Live;Time (ns);ADC Count", i), 1024, 0, 1024 * streamCfg.dt_ns);
+        hWave[i] = new TH1I(Form("hWave_%d", i), Form("Channel %d Live;Time (ns);ADC Count", i), 496, 0, 496 * streamCfg.dt_ns);
         hWave[i]->SetLineColor(kAzure + 2);
         hWave[i]->SetLineWidth(2);
         hWave[i]->SetStats(0);
 
-        hSpec[i] = new TH1F(Form("hSpec_%d", i), Form("Channel %d Charge Spectrum;Charge (ADC*ns);Counts", i), 500, 0, 60000);
+        hSpec[i] = new TH1F(Form("hSpec_%d", i), Form("Channel %d Charge Profile;Charge (ADC*ns);Counts", i), 250, 0, 8000);
+        hSpec[i]->SetCanExtend(TH1::kAllAxes);
         hSpec[i]->SetLineColor(kRed + 1);
         hSpec[i]->SetFillColor(kRed - 9);
         hSpec[i]->SetFillStyle(1001);
         hSpec[i]->SetMinimum(0.5);
+        hSpec[i]->SetStats(1);
 
         lBase[i] = new TLine();
         lBase[i]->SetLineColor(kRed);
@@ -108,7 +116,8 @@ int main(int argc, char** argv) {
 
     unsigned char header[128];
     unsigned int liveEventID = 0;
-    auto last_update = std::chrono::steady_clock::now();
+    auto run_start_time = std::chrono::steady_clock::now();
+    auto last_update = run_start_time;
 
     std::vector<unsigned char> payload;
     std::vector<uint16_t> wave[4];
@@ -207,6 +216,7 @@ int main(int argc, char** argv) {
         double bsl[4] = {0.0, 0.0, 0.0, 0.0};
         double minV[4] = {99999.0, 99999.0, 99999.0, 99999.0};
         double maxV[4] = {-99999.0, -99999.0, -99999.0, -99999.0};
+        double peakAmp[4] = {0.0, 0.0, 0.0, 0.0};
 
         for (int i = 0; i < 4; i++) {
             double bslSum = 0.0;
@@ -224,15 +234,19 @@ int main(int argc, char** argv) {
                 const double sig = (pol == 0)
                     ? (bsl[i] - static_cast<double>(val))
                     : (static_cast<double>(val) - bsl[i]);
+                if (sig > peakAmp[i]) peakAmp[i] = sig;
                 if (sig > 0.0) chargeNs += sig * dt_ns;
             }
-            if (chargeNs > 0.0) hSpec[i]->Fill(chargeNs);
+            const bool chTriggered = ((hdr.trigger_pattern & (0xFU << (i * 4))) != 0U) || (hdr.trigger_pattern == 0U);
+            if (chargeNs > 0.0 && chTriggered) hSpec[i]->Fill(chargeNs);
         }
 
         auto now = std::chrono::steady_clock::now();
         const double elapsed = std::chrono::duration<double>(now - last_update).count();
 
-        if (elapsed > 0.1) {
+        if (elapsed > 0.2) {
+            const double totalRunSec = std::max(0.001, std::chrono::duration<double>(now - run_start_time).count());
+            const double avgRateHz = static_cast<double>(liveEventID) / totalRunSec;
             const double xMaxNs = num_samples * dt_ns;
             for (int i = 0; i < 4; i++) {
                 if (hWave[i]->GetNbinsX() != num_samples ||
@@ -247,8 +261,8 @@ int main(int argc, char** argv) {
                 double margin = (maxV[i] - minV[i]) * 0.1;
                 if (margin < 10.0) margin = 10.0;
                 hWave[i]->GetYaxis()->SetRangeUser(minV[i] - margin, maxV[i] + margin);
-                hWave[i]->SetTitle(Form("Ch %d Waveform (Event: %u, POL=%d);Time (ns);ADC Count",
-                                        i, liveEventID, streamCfg.polarity[i]));
+                hWave[i]->SetTitle(Form("Ch %d Live (Evt %u | Amp %.1f ADC | %.1f Hz);Time (ns);ADC Count",
+                                        i, liveEventID, peakAmp[i], avgRateHz));
 
                 lBase[i]->SetX1(0.0);
                 lBase[i]->SetY1(bsl[i]);

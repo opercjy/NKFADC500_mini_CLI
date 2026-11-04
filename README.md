@@ -136,6 +136,62 @@ $$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + 
 4. **SDRAM 8-Lane LVDS 트레이닝 패턴 (`0xFFAA5500`) 및 Bit-Slip 정렬**:
    - [`Fadc500Device::SafeAlignDRAM()`](./core/src/Fadc500Device.cpp)은 온보드 64 MB SDRAM의 8개 바이트 레인에 교번 비트 시계열(Training Pattern) `0xFFAA5500` (`11111111_10101010_01010101_00000000`)을 기록한 뒤, IDELAY 탭($0\dots 31$) 스캔으로 아이 다이어그램(Eye Diagram) 유효 윈도우 중앙 위상을 찾고 `BITSLIP` ($0\dots 3$)을 조정하여 워드 경계를 동기화합니다.
 
+### 2.4 실장비(`SID=1`) 온라인 검증으로 규명된 FPGA 레지스터 맵, 128-Byte 패킷 헤더 및 타이밍 파이프라인
+
+구형 `NKFADC500 Mini` (`SID=1`, Cypress FX3 USB 3.0 SuperSpeed `VID=0x0547, PID=0x1502`, `5000 Mbps`) 실장비 온라인 진단([`scripts/explore_fpga_and_timing.py`](./scripts/explore_fpga_and_timing.py))을 통해 규명된 **FPGA VME/USB3 레지스터 맵(`0x20000000`~`0x2000001F`)**, **`DLY` 레지스터(`0x20000007`)의 `+80 ns` 하드웨어 파이프라인 오프셋**, **128-Byte 4채널 바이트 인터리빙 패킷 헤더**, 및 **500 MS/s Dual-Core TI-ADC 특성**은 다음과 같습니다:
+
+<p align="center">
+  <img width="1400" alt="NKFADC500 Mini FPGA Trigger Pipeline Timing Diagram, DLY +80ns Offset, and 48-Bit Timestamp Telemetry" src="./docs/images/fig_fpga_timing_and_telemetry.png" />
+</p>
+
+1. **FPGA `DLY` 레지스터(`0x20000007`)의 $8\text{ ns}$ 양자화 및 `+80 ns` (`+0x50`) 내부 파이프라인 오프셋**:
+   - 호스트가 `NKFADC500write_DLY(sid, ch, dly)`를 통해 $\text{raw\_written} = \big(\lfloor(\text{CW}+\text{DLY})/1000\rfloor \ll 10\big) \mid \big((\text{CW}+\text{DLY}) \bmod 1000\big)$을 기록하면, 구형 미니 박스 FPGA는 $125\text{ MHz}$ 시스템 클럭($8\text{ ns}$)에 맞추어 하위 3비트를 내림(`& ~0x7UL`)한 뒤 **내부 트리거 비교기·파이프라인 지연 시간 `+80 ns` (`+0x50`, $125\text{ MHz}$ 10클럭)**를 하드웨어적으로 가산하여 저장 및 리드백합니다:
+     $$\text{raw\_readback} = (\text{raw\_written} \ \& \ \sim\texttt{0x7UL}) + \texttt{0x50UL}$$
+   - 예: $\text{CW}(100\text{ ns}) + \text{DLY}(400\text{ ns}) = 500\text{ ns}$ (`0x01F4`) 인가 시 FPGA 레지스터(`0x20000007`) 리드백은 $496 + 80 = \mathbf{576\text{ ns}}$ (`0x0240`)이며, 이때 $992\text{ ns}$ ($\text{RL}=8$, $496\text{ samples}$) 캡처 윈도우 내부에서 실제 음극성 PMT 피크는 $t_{\text{peak}} \approx 370\text{--}372\text{ ns}$ 지점에 정밀 정렬됩니다.
+
+2. **FPGA VME/USB3 레지스터 주소 공간 (`0x20000000` ~ `0x2000001F`)**:
+
+| 레지스터 주소 | 레지스터 명칭 | 적용 범위 | 비트필드 및 하드웨어 동작 명세 |
+| :---: | :--- | :---: | :--- |
+| `0x20000000` | `RUN / RESET / TIMER` | Global | `Bit0`: Reset, `Bit1`: Timer Reset, `Bit2`: SW Trigger, `Bit3`: Run Status (`1=RUNNING`) |
+| `0x20000001` | `CW` (Coincidence Window) | Per-Ch (`+ch<<16`) | $8\text{ ns}$ 단위 동시계수 윈도우 ($8\sim 32{,}760\text{ ns}$), 기본 `100 ns` ($\to 96\text{ ns}$) |
+| `0x20000002` | `RL` (Record Length) | Global | 파형 길이 코드 $\text{RL} \in \{1,2,4,8,16\dots 256\}$; 샘플 수 $N_s = 64\times\text{RL}-16$ ($\text{RL}=8 \implies 496\text{ pts}$) |
+| `0x20000003` | `DRAMON / ADCCAL` | Global | 온보드 $64\text{ MB}$ DDR SDRAM 활성화(`1`) 및 ADC 캘리브레이션 스트로브 |
+| `0x20000004` | `DACOFF` (Offset DAC) | Per-Ch (`+ch<<16`) | 12-bit 아날로그 베이스라인 오프셋 DAC ($0\sim 4095$), `3600` 설정 시 페데스탈 $\approx 3815\text{ ADC}$ |
+| `0x20000005` | `PED` (Hardware Pedestal) | Per-Ch (`+ch<<16`) | FPGA 내부 측정 하드웨어 페데스탈 리드백 레지스터 (12-bit ADC) |
+| `0x20000007` | `DLY` (Trigger Delay) | Per-Ch (`+ch<<16`) | 프리트리거 지연 레지스터; 리드백 $= (\text{written}\ \&\ \sim\texttt{0x7}) + \texttt{0x50}$ (`+80 ns` 오프셋) |
+| `0x20000008` | `THR` (Threshold) | Per-Ch (`+ch<<16`) | 자기 트리거 파고 임계값 ($1\sim 4095\text{ ADC}$) 또는 Peak-Sum 임계값 (26-bit) |
+| `0x20000009` | `POL / AMODE / ZEROSUP` | Per-Ch (`+ch<<16`) | 극성(`0`=Negative PMT, `1`=Positive), 성형 모드(`AMODE`), Zero-Suppression |
+| `0x2000000A` | `PSW` (Peak Sum Width) | Per-Ch (`+ch<<16`) | Peak-Sum 이동 적분 폭 ($2\sim 16{,}382\text{ ns}$) |
+| `0x2000000B` | `PCT` (Pulse Count Thr) | Per-Ch (`+ch<<16`) | 다중 펄스 카운트 임계 개수 ($1\sim 15$) |
+| `0x2000000C` | `PCI` (Pulse Count Int) | Per-Ch (`+ch<<16`) | 다중 펄스 카운트 판별 간격 ($32\sim 8{,}160\text{ ns}$) |
+| `0x2000000D` | `PWT` (Pulse Width Thr) | Per-Ch (`+ch<<16`) | 펄스 폭 변별 임계값 ($2\sim 1{,}022\text{ ns}$) |
+| `0x2000000E` | `DT` (Dead Time) | Per-Ch (`+ch<<16`) | 채널별 불감 시간 ($0\sim 8{,}355{,}840\text{ ns}$) |
+| `0x20000010` | `BCOUNT` (FIFO Count) | Global | 온보드 $64\text{ MB}$ DRAM FIFO 대기 데이터량 [$\text{KB}$, 최대 $65{,}536\text{ KB}$ (`0x10000`)] |
+| `0x20000011` | `PTRIG` (Pedestal Trig) | Global | 주기적 페데스탈 트리거 간격 [$\text{ms}$] (`0`=비활성) |
+| `0x20000013` | `TRIGENABLE` | Global | 트리거 소스 활성화 마스크 (`Bit0`: Self, `Bit1`: Ped, `Bit2`: Soft, `Bit3`: Ext) |
+| `0x20000014` | `TM` (Trigger Mode) | Per-Ch (`+ch<<16`) | 트리거 모드 (`Bit0`: Height, `Bit1`: Width, `Bit2`: PeakSum, `Bit3`: PeakSumOR) |
+| `0x20000015` | `TLT` (Trigger Lookup) | Global | 16-bit 4입력 진리표 (`0xAAAA`=Ch1 단독, `0xCCCC`=Ch2 단독, `0xFFFE`=4채널 OR) |
+| `0x20000016` | `ADCDLY / DRAMDLY` | Per-Ch / Lane | $500\text{ MS/s}$ LVDS ADC 탭 지연($0\dots 31$) 및 DDR SDRAM 8바이트 레인 탭 지연($0\dots 31$) |
+| `0x2000001A` | `ADCSTAT` | Global | 4채널 LVDS ADC 비트 정렬 Lock 상태 비트 (`Bit0..3` = Ch1..Ch4) |
+| `0x2000001C` | `EVENT_NUMBER` (`ITC`) | Per-Ch (`+ch<<16`) | 채널별 내부 트리거 발생 누적 카운터 (Internal Trigger Counter) |
+| `0x2000001E` | `PSCALE / LIVETIME_LO` | Global | 프리스케일($1\sim 65{,}535$) 및 FPGA 라이브타임 하위 워드 |
+| `0x2000001F` | `DSR / LIVETIME_HI` | Global | 샘플링 분주비 $\text{DSR}\in\{1,2,4,8\}$ ($f_s = 500/\text{DSR}\text{ MS/s}$) 및 라이브타임 상위 워드 |
+
+3. **Raw 바이너리(`.dat`) 128-Byte 4채널 바이트 인터리빙 헤더 구조 ([`NoticeFadc500Spec::DecodeHeader128`](./core/include/NoticeFadc500Spec.hh))**:
+   - 매 이벤트 시작부 `128 Byte` (`32 Byte/ch` $\times 4\text{ ch}$ 인터리빙)에는 다음 하드웨어 메타데이터가 기록됩니다:
+     - **Bytes `0, 4, 8, 12`**: 채널당 패킷 바이트 길이 `data_length` ($= 32 + 2 N_s$; $\text{RL}=8 \implies 1024\text{ B/ch}$, 총 $4096\text{ B/event}$)
+     - **Bytes `16..23`**: 4채널 FPGA 하드웨어 측정 페데스탈 `hw_pedestal[0..3]` (16-bit LE)
+     - **Byte `24`**: 하위 니블 `trigger_type` (`h[24] & 0x0F`), 상위 니블 `trigger_destination` (`(h[24] >> 4) & 0x0F`)
+     - **Bytes `28, 32, 36, 40` & `44, 48, 52, 56`**: 전역 TCB 트리거 번호(`tcb_trig_num`) 및 TCB 시각($8\text{ ns}\cdot\texttt{h[44]} + 1000\text{ ns}\cdot\text{Coarse}_{24\text{b}}$)
+     - **Byte `60` & Bytes `64..67`**: 보드 `MID` (`1`) 및 하드웨어 채널 식별 태그 `{1, 2, 3, 4}`
+     - **Bytes `68, 72, 76, 80`**: 로컬 FPGA 트리거 번호 `local_trig_num` (32-bit)
+     - **Bytes `84, 88, 92, 96`**: 4채널 자기 트리거 발화 패턴 `trigger_pattern` (**4-bit 니블 인코딩**: `0x0001`=Ch1, `0x0010`=Ch2, `0x0100`=Ch3, `0x1000`=Ch4)
+     - **Byte `100` & Bytes `104, 108, 112, 116, 120, 124`**: 로컬 FPGA $125\text{ MHz}$ Fine Time Counter (`h[100] * 8 ns`, $0\dots 992\text{ ns}$) 및 48-Bit Coarse Time Counter (`* 1000 ns`)
+
+4. **500 MS/s Dual-Core TI-ADC ($2\times 250\text{ MS/s}$ 홀/짝 서브 코어 인터리빙) 특성**:
+   - 각 채널의 $500\text{ MS/s}$ ADC는 내부적으로 2개의 $250\text{ MS/s}$ 서브 코어가 짝수 인덱스($2m$)와 홀수 인덱스($2m+1$)를 교번 샘플링(Time-Interleaved ADC)합니다. 무신호 프리트리거 구간에서 두 서브 코어 간 미세 DC 오프셋 편차($\Delta_{\text{even-odd}} \approx -0.36\text{ ADC} \approx -0.22\text{ mV}$ on Ch0)가 존재하며, 정밀 스펙트럼/노이즈 분석 시 홀/짝 평균 차감(De-interleaving)을 통해 나이퀴스트 주파수($f_{\text{Nyq}} = 250\text{ MHz}$) 아티팩트와 순수 열잡음을 분리할 수 있습니다.
+
 ---
 
 ## 3. 하이브리드 4계층 아키텍처 및 설정 객체(`RunInfo`/`FadcBD`) 직렬화 파이프라인
