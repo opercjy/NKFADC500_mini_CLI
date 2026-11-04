@@ -72,6 +72,9 @@ public:
     void SetPWT(int ch, int val)    { if(ch>=0 && ch<4) fPWT[ch] = val; }
     int  GetPWT(int ch) const       { return (ch>=0 && ch<4) ? fPWT[ch] : 0; }
 
+    void SetPED(int ch, int val)    { if(ch>=0 && ch<4) fPED[ch] = val; }
+    int  GetPED(int ch) const       { return (ch>=0 && ch<4) ? fPED[ch] : 0; }
+
 private:
     int fMID;          
     int fSAMPLING;
@@ -94,8 +97,9 @@ private:
     int fPCT[4];
     int fPCI[4];
     int fPWT[4];
+    int fPED[4];
 
-    ClassDef(FadcBD, 3)
+    ClassDef(FadcBD, 4)
 };
 
 #endif

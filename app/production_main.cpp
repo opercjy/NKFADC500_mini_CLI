@@ -16,8 +16,10 @@
 #include <unistd.h>
 #include <vector>
 
+#include "ConfigParser.hh"
 #include "ELog.hh"
 #include "NoticeFadc500Spec.hh"
+#include "RunInfo.hh"
 #include "TApplication.h"
 #include "TCanvas.h"
 #include "TFile.h"
@@ -229,19 +231,64 @@ int main(int argc, char** argv) {
     std::rewind(fp);
     const double totalMB = static_cast<double>(totalBytes) / 1048576.0;
 
-    const std::string resolvedCfgPath =
-        NoticeFadc500Spec::ResolveCompanionConfigPath(explicitConfig, inputFile, argv[0]);
-    const NoticeFadc500Spec::StreamDecodeConfig prodCfg =
-        NoticeFadc500Spec::LoadStreamDecodeConfig(resolvedCfgPath);
-    if (prodCfg.loaded_path.empty() && !resolvedCfgPath.empty()) {
-        ELog::Print(ELog::WARNING,
-            "Configuration file not found (" + resolvedCfgPath + "). Using defaults (DLY=400 ns, POL=0, 500 MS/s).");
+    // Priority 1: Deserialize Frontend-captured RunInfo/FadcBD object (<run>_cfg.root) if available and no explicit -f override
+    // Priority 2: Parse companion <run>.cfg or explicit -f <config.cfg> into RunInfo/FadcBD object
+    RunInfo prodRunInfo;
+    NoticeFadc500Spec::StreamDecodeConfig prodCfg;
+    bool loadedFromSerializedObj = false;
+
+    std::filesystem::path companionObjPath(inputFile);
+    companionObjPath.replace_extension("");
+    companionObjPath += "_cfg.root";
+
+    if (explicitConfig.empty() && std::filesystem::exists(companionObjPath)) {
+        TFile* cfgObjFile = TFile::Open(companionObjPath.string().c_str(), "READ");
+        if (cfgObjFile && !cfgObjFile->IsZombie()) {
+            if (RunInfo* savedRi = dynamic_cast<RunInfo*>(cfgObjFile->Get("RunInfo"))) {
+                prodRunInfo.SetRunNumber(savedRi->GetRunNumber());
+                for (int b = 0; b < savedRi->GetNFadcBD(); ++b) {
+                    if (const FadcBD* srcBd = savedRi->GetFadcBD(b)) {
+                        FadcBD* dstBd = prodRunInfo.AddFadcBD(srcBd->GetMID());
+                        *dstBd = *srcBd;
+                    }
+                }
+                prodCfg.loaded_path = companionObjPath.string();
+                prodCfg.config_run_number = prodRunInfo.GetRunNumber();
+                prodCfg.dt_ns = prodRunInfo.GetSamplingNs(0);
+                if (const FadcBD* bd0 = prodRunInfo.GetFadcBD(0)) {
+                    for (int ch = 0; ch < 4; ++ch) {
+                        prodCfg.delay_ns[ch] = static_cast<double>(bd0->GetDLY(ch));
+                        prodCfg.polarity[ch] = bd0->GetPOL(ch);
+                    }
+                }
+                loadedFromSerializedObj = true;
+            }
+            cfgObjFile->Close();
+            delete cfgObjFile;
+        }
+    }
+
+    if (!loadedFromSerializedObj) {
+        const std::string resolvedCfgPath =
+            NoticeFadc500Spec::ResolveCompanionConfigPath(explicitConfig, inputFile, argv[0]);
+        prodCfg = NoticeFadc500Spec::LoadStreamDecodeConfig(resolvedCfgPath);
+        if (!prodCfg.loaded_path.empty()) {
+            ConfigParser::Parse(prodCfg.loaded_path, &prodRunInfo);
+        } else {
+            prodRunInfo.SetRunNumber(0);
+            prodRunInfo.AddFadcBD(1);
+            if (!resolvedCfgPath.empty()) {
+                ELog::Print(ELog::WARNING,
+                    "Configuration file not found (" + resolvedCfgPath + "). Using defaults (DLY=400 ns, POL=0, 500 MS/s).");
+            }
+        }
     }
 
     const double dt_ns = prodCfg.dt_ns;
     const int resolvedRunNumber = (explicitRunNumber >= 0)
         ? explicitRunNumber
         : InferRunNumberFromFilename(inputFile, prodCfg.config_run_number);
+    prodRunInfo.SetRunNumber(resolvedRunNumber);
 
     if (outputFile.empty()) {
         outputFile = inputFile;
@@ -519,7 +566,11 @@ int main(int argc, char** argv) {
         std::cout << "   Avg Speed     : " << std::fixed << std::setprecision(2) << final_speed_mbps << " MB/s\n";
         std::cout << "\033[1;36m========================================================\033[0m\n";
 
-        // Store configuration provenance metadata inside ROOT file
+        // Serialize full RunInfo & FadcBD hardware configuration objects + provenance metadata inside ROOT file
+        prodRunInfo.Write("RunInfo", TObject::kSingleKey);
+        if (FadcBD* bd0 = prodRunInfo.GetFadcBD(0)) {
+            bd0->Write("FadcBD", TObject::kSingleKey);
+        }
         TNamed cfgMeta("ProductionConfigPath", prodCfg.loaded_path.c_str());
         cfgMeta.Write();
         rootFile->Write();

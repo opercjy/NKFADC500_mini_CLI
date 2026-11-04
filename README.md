@@ -1,241 +1,272 @@
-# NKFADC500_mini_CLI : Notice NKFADC500-4 Standalone C++17 DAQ & PySide6 Control Suite
+# NKFADC500_mini_CLI : Notice NKFADC500-4 C++17 DAQ, FPGA Decoder & PySide6 Control Suite
 
-[![Platform](https://img.shields.io/badge/Platform-Linux%20(x86__64)-0078D4?logo=linux&logoColor=white)](https://github.com/opercjy/NKFADC500_mini_CLI)
-[![Hardware](https://img.shields.io/badge/Hardware-Notice%20NKFADC500--4%20(500%20MS%2Fs%2C%2012--bit)-E65100)](http://www.noticekorea.com/)
-[![C++ Standard](https://img.shields.io/badge/C%2B%2B-17%20%7C%20CERN%20ROOT%206-00599C?logo=cplusplus&logoColor=white)](https://root.cern/)
-[![GUI Framework](https://img.shields.io/badge/GUI-PySide6%20(Qt6)%20%2B%20PyQtGraph-41CD52?logo=qt&logoColor=white)](https://wiki.qt.io/Qt_for_Python)
-[![Verification](https://img.shields.io/badge/E2E%20Audit-4--Stage%20Static%2FDynamic%20Verified%20(Argon)-8A2BE2)](#8-인공지능-활용-선언-declaration-of-ai-use-in-staticdynamic-verification)
+<!-- Okabe-Ito Colorblind-Safe Badges (#0072B2 Blue, #D55E00 Vermilion, #009E73 Bluish Green, #E69F00 Orange, #CC79A7 Reddish Purple) -->
+[![Platform](https://img.shields.io/badge/Platform-Linux_x86__64-0072B2?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/opercjy/NKFADC500_mini_CLI)
+[![Hardware](https://img.shields.io/badge/Digitizer-Notice_NKFADC500--4_(500_MS%2Fs,_12--bit)-D55E00?style=for-the-badge)](http://www.noticekorea.com/)
+[![C++17 & ROOT 6](https://img.shields.io/badge/Engine-C%2B%2B17_%7C_CERN_ROOT_6-009E73?style=for-the-badge&logo=cplusplus&logoColor=white)](https://root.cern/)
+[![PySide6 GUI](https://img.shields.io/badge/GUI-PySide6_(Qt6)_%2B_Okabe--Ito_Palette-E69F00?style=for-the-badge&logo=qt&logoColor=black)](https://wiki.qt.io/Qt_for_Python)
+[![Verification](https://img.shields.io/badge/Verification-4--Stage_E2E_Verified_(Argon)-CC79A7?style=for-the-badge)](#9-인공지능-활용-선언-declaration-of-ai-use-in-staticdynamic-verification)
 
 > **[Notice Hardware Maintenance & Development Declaration]**  
-> 본 프레임워크는 **Notice Korea**에서 제공한 로우 레벨 API(`libnkusb`, `libusb3com`, `libNoticeNKFADC500`) 및 하드웨어 래퍼를 기반으로 작성되었습니다. 고에너지 물리(HEP)·핵물리·방사선 검출기 실험의 장기 운용과 고율 트리거(High-Rate Trigger & Noise) 환경에서도 장비가 무결하게 동작할 수 있도록, 연구자 주도하에 C++17 코어 아키텍처 재설계, 64-bit FPGA 패킷 디코딩 정밀화, 및 지속적인 유지보수(Maintenance)가 이루어지고 있는 독립 오픈소스 프로젝트입니다.
+> 본 프레임워크는 **Notice Korea**에서 제공한 로우 레벨 API(`libnkusb`, `libusb3com`, `libNoticeNKFADC500`) 및 하드웨어 래퍼를 기반으로 작성되었습니다. 고에너지 물리(HEP)·핵물리·방사선 검출기 실험의 장기 운용과 고율 트리거(High-Rate Trigger & Noise) 환경에서도 장비가 무결하게 동작할 수 있도록, 연구자 주도하에 C++17 코어 아키텍처 재설계, 하드웨어 설정 객체(`RunInfo`/`FadcBD`) 직렬화, 64-bit FPGA 패킷 디코딩 정밀화, 및 지속적인 유지보수(Maintenance)가 이루어지고 있는 독립 오픈소스 프로젝트입니다.
 
 ---
 
-## 1. 프로젝트 개요 및 하드웨어 제원 (Overview & Hardware Specifications)
+## 목차 (Table of Contents)
 
-**`NKFADC500_mini_CLI`**는 Notice Korea의 **NKFADC500 Mini (4채널, 500 MS/s, 12-bit Flash ADC)** 디지타이저 보드를 제어하고, 초고속 USB 3.0 (Cypress FX3 SuperSpeed) 버스트 스트리밍으로 원시 바이너리(`.dat`) 데이터를 수집·감시한 뒤 **CERN ROOT 6** 플랫 트리(`_prod.root`)로 변환·분석하는 **하이브리드 C++17 / Python(PySide6) 통합 데이터 획득(DAQ) 프레임워크**입니다.
+1. [시스템 개요 및 하드웨어 계측 규격 (Hardware & Metrology Specifications)](#1-시스템-개요-및-하드웨어-계측-규격-hardware--metrology-specifications)
+2. [박사급 프런트엔드 회로 설계 및 신호처리 물리 이론 (Front-End Circuit & DSP Physics)](#2-박사급-프런트엔드-회로-설계-및-신호처리-물리-이론-front-end-circuit--dsp-physics)
+3. [하이브리드 4계층 아키텍처 및 설정 객체(`RunInfo`/`FadcBD`) 직렬화 파이프라인](#3-하이브리드-4계층-아키텍처-및-설정-객체runinfofadcbd-직렬화-파이프라인)
+4. [색각 이상자 배려(Okabe–Ito Palette) 및 고시인성 UI/UX 설계 표준](#4-색각-이상자-배려okabeito-palette-및-고시인성-uiux-설계-표준)
+5. [디렉토리 구조 및 빌드·실행 가이드 (Build & Execution)](#5-디렉토리-구조-및-빌드실행-가이드-build--execution)
+6. [`PROD` ROOT 트리 스키마 및 내장 메타데이터 객체](#6-prod-root-트리-스키마-및-내장-메타데이터-객체)
+7. [고급 오프라인 물리 분석 매크로 (SPE, Compton Edge, PSD)](#7-고급-오프라인-물리-분석-매크로-spe-compton-edge-psd)
+8. [정적/동적 코드 분석 및 4단계 E2E 무결성 검증 요약](#8-정적동적-코드-분석-및-4단계-e2e-무결성-검증-요약)
+9. [인공지능 활용 선언 (Declaration of AI Use — `Argon` Model)](#9-인공지능-활용-선언-declaration-of-ai-use-in-staticdynamic-verification)
+10. [감사의 글 (Acknowledgements)](#10-감사의-글-acknowledgements)
+11. [GUI 마스터 패널 및 실측 분석 화면 (Experimental Screenshots)](#11-gui-마스터-패널-및-실측-분석-화면-uiux--experimental-screenshots)
 
-고속 트리거 환경에서도 USB 3.0 FIFO 및 보드 내장 64 MB DRAM 버퍼가 데드락에 빠지지 않도록 **비동기 링버퍼(Zero-Deadlock Producer–Consumer)** 및 **종료 후 잔여 패킷 완전 회수(100% Post-Stop Tail Drain)** 로직이 탑재되어 있으며, **NumPy 벡터화 다이렉트 바이너리 파서**를 통해 수집 중 디스크 I/O 간섭 없이 $50\text{ ms}$ ($20\text{ fps}$) 주사율의 실시간 파형·스펙트럼 감시를 수행합니다.
+---
 
-### NKFADC500-4 (FADC500 Mini) 핵심 하드웨어 및 물리 환산 규격
+## 1. 시스템 개요 및 하드웨어 계측 규격 (Hardware & Metrology Specifications)
 
-| 항목 (Parameter) | 하드웨어 규격 및 물리 환산치 (Specification & Calibration) | 비고 (Notes) |
+**`NKFADC500_mini_CLI`**는 Notice Korea의 **NKFADC500 Mini (4-Channel, 500 MS/s, 12-bit Flash ADC)** 디지타이저 보드를 제어하고, Cypress FX3 USB 3.0 SuperSpeed 버스트 스트리밍을 통해 원시 바이너리(`.dat`) 파형을 무손실 수집·감시한 뒤 **CERN ROOT 6** 표준 데이터 트리(`_prod.root`)로 고속 직렬화하는 통합 데이터 획득(DAQ) 프레임워크입니다.
+
+| 계측 항목 (Parameter) | 수식 및 하드웨어 정량 규격 (Mathematical & Hardware Specification) | 물리적·공학적 비고 (Engineering Notes) |
 | :--- | :--- | :--- |
-| **입력 채널 및 임피던스** | 4 Channels (MCX/SMA), $R_{\text{term}} = 50.0\ \Omega$ DC 커플링 | 채널별 독립 DAC 오프셋(`DACOFF`) 조정 |
-| **샘플링 속도 및 시간 분해능** | $f_s = 500\text{ MS/s}$ ($\Delta t_{\text{samp}} = 2.0\text{ ns/sample}$) | 4-ADC 인터리빙 (ADC 클럭 정렬 내장) |
-| **수직 해상도 및 동적 범위** | $12\text{-bit}$ ($0\text{--}4095\text{ ADC}$), 공칭 $V_{\text{pp}} = 2.5\text{ V}_{\text{pp}}$ ($\pm 1.25\text{ V}$) | $\Delta V_{\text{LSB}} = \dfrac{2500\text{ mV}}{4096} = \mathbf{0.61035\text{ mV/ADC}}$ |
-| **단위 전하 환산 계수 ($q_{\text{LSB}}$)** | $q_{\text{LSB}} = \dfrac{\Delta V_{\text{LSB}}\,\Delta t_{\text{samp}}}{50\ \Omega} = \mathbf{24.4140625\text{ fC/(ADC}\cdot\text{sample)}}$ | $0.0244140625\text{ pC/(ADC}\cdot\text{sample)}$ |
-| **레코드 길이 (`RL`) 및 샘플 수** | $\texttt{RL} \in \{1, 2, 4, 8, 16, 32, 64, 128, 256\}$ ($\text{패킷 바이트} = \texttt{RL}\times 512\text{ B}$) | $\texttt{RL}=4 \implies N_s = 496\text{ samples}$ ($992\text{ ns}$ 창) |
-| **타이밍 클럭 분해능** | Fine Timestamp $1\text{ ns}$ / Coarse Timestamp $8\text{ ns}$ ($125\text{ MHz}$) | 48-bit Local FPGA 시간 + 64-bit TCB 시간 |
-| **온보드 버퍼 및 인터페이스** | 64 MB SDRAM (`BCOUNT` 1 KB 블록 단위) / USB 3.0 SuperSpeed | `128 KB` / `16 KB` FX3 Slave FIFO 정렬 읽기 |
+| **입력 채널 및 종단 임피던스** | $N_{\text{ch}} = 4$, $R_{\text{term}} = 50.0\ \Omega$ DC 커플링 | 12-bit DAC 오프셋(`DACOFF` $\in [0, 4095]$) 독립 제어 |
+| **샘플링 주파수 및 시간 간격** | $f_s = \dfrac{500\text{ MS/s}}{\text{DSR}}$, $\Delta t_{\text{samp}} = \dfrac{1}{f_s} = 2.0\text{ ns}\times\text{DSR}$ | 분주비 $\text{DSR} \in \{1, 2, 4, 8\}$ (기본값 $\text{DSR}=1 \implies 2.0\text{ ns}$) |
+| **나이퀴스트 주파수 및 대역폭** | $f_{\text{Nyq}} = \dfrac{f_s}{2} = 250\text{ MHz}$, 아날로그 안티에일리어싱 $f_{-3\text{dB}} \approx 200\text{ MHz}$ | 계단 응답 상승 시간 $t_{10\text{--}90\%} \approx \dfrac{0.35}{f_{-3\text{dB}}} \approx 1.75\text{ ns}$ |
+| **수직 양자화 해상도 ($\Delta V_{\text{LSB}}$)** | $12\text{-bit}$ ($N_{\text{ADC}} = 2^{12} = 4096$), $V_{\text{pp}} = 2.5\text{ V}_{\text{pp}} \implies \Delta V_{\text{LSB}} = \dfrac{2500\text{ mV}}{4096} = \mathbf{0.6103515625\text{ mV/ADC}}$ | 이상적 양자화 잡음 $\sigma_q = \dfrac{\Delta V_{\text{LSB}}}{\sqrt{12}} \approx 0.176\text{ mV}$ ($0.289\text{ ADC}$) |
+| **단위 전하 환산 계수 ($q_{\text{LSB}}$)** | $q_{\text{LSB}} = \dfrac{\Delta V_{\text{LSB}}\,\Delta t_{\text{samp}}}{R_{\text{term}}} = \dfrac{0.6103515625\text{ mV}\times 2.0\text{ ns}}{50.0\ \Omega} = \mathbf{24.4140625\text{ fC/(ADC}\cdot\text{sample)}}$ | $\mathbf{0.0244140625\text{ pC/(ADC}\cdot\text{sample)}}$ ($\text{DSR}=1$ 기준) |
+| **레코드 길이 (`RL`) 및 샘플 수** | $\text{RL} \in \{1, 2, 4, 8, 16, 32, 64, 128, 256\}$, 패킷 크기 $B_{\text{evt}} = \text{RL}\times 512\text{ Bytes}$ | 헤더 $128\text{ B}$ 제외 시 채널당 샘플 수 $N_s = 128\times\text{RL} - 16$ ($\text{RL}=4 \implies N_s=496$, $992\text{ ns}$) |
+| **FPGA 클럭 및 타임스탬프** | Fine Counter $1\text{ ns}$ + Coarse Counter $8\text{ ns}$ ($125\text{ MHz}$ 시스템 클럭) | 48-bit Local Time ($\approx 78.1\text{ hr}$ 주기) + 64-bit TCB Time |
+| **온보드 메모리 및 버스 정렬** | $64\text{ MB}$ DDR SDRAM ($\text{BCOUNT} \in [0, 65536]\text{ KB}$) / USB 3.0 FX3 Slave FIFO | `128 KB` 스트리밍 슬라이스 / `16 KB` FX3 버스트 경계 정렬 |
 
 ---
 
-## 2. 하이브리드 시스템 아키텍처 (System Architecture)
+## 2. 박사급 프런트엔드 회로 설계 및 신호처리 물리 이론 (Front-End Circuit & DSP Physics)
 
-본 시스템은 **수집(Online Frontend)**, **실시간 감시(Direct Monitoring)**, **오프라인 변환(ROOT Production)**, **통합 제어(PySide6 Master GUI)**의 4대 계층을 분리하여 I/O 병목과 프로세스 간 간섭을 원천 차단합니다.
+고에너지·핵물리 실험에서 광전자증배관(PMT, 예: Hamamatsu H7195)이나 실리콘 광증배관(SiPM)을 고속 FADC에 결합할 때, 아날로그 프런트엔드 회로 설계와 디지털 신호처리(DSP)의 수학적 관계를 정확히 이해해야 파형 왜곡(Ringing), 반사(Reflection), 및 전하 적분 오차를 방지할 수 있습니다.
 
-```
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                   [Master GUI] PySide6 Control Panel (fadc500_gui)            │
-│   • DaqTab (Threshold Auto-Scan / Multi-Run)   • ProductionTab (Batch ROOT)   │
-│   • OnlineMonitorTab (20 fps NumPy Vector)     • RunCatalogTab (SQLite3 DB)   │
-└───────────────┬───────────────────────────────────┬───────────────────────────┘
-                │ QProcess (CLI Isolation)          │ Direct Non-Blocking File Tail
-                ▼                                   ▼
-┌───────────────────────────────────────┐   ┌───────────────────────────────────┐
-│ [Core 1] frontend_nkfadc500 (C++17)   │   │ [Core 3] Direct Binary Monitor    │
-│ • NoticeFadc500Spec.hh 레지스터 검증   │   │ • 4채널 인터리빙 헤더(0,4,8,12 B) │
-│ • 32-bit BCOUNT & FX3 Burst 정렬 읽기  ├──►│   NumPy 비트시프트 즉시 해독       │
-│ • Producer-Consumer 링버퍼 (.dat 덤프) │   │ • 파형 + 파고/전하 스펙트럼 렌더링│
-└───────────────┬───────────────────────┘   └───────────────────────────────────┘
-                │ Raw Binary (.dat) + Companion Config (.cfg)
-                ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│ [Core 2] production_nkfadc_500 (C++17 + CERN ROOT 6)                          │
-│ • USB3 0xFF 버스트 패딩 스킵 및 패킷 헤더 무결성 검증                         │
-│ • 64-bit TCB & 48-bit Local TriggerTime 언래핑 (2.14초 32-bit 오버플로 제거)  │
-│ • 80-sample 프리트리거 베이스라인 차감, 파고/전하 적분 및 PSD(Qtail/Qtotal)   │
-│ • Flat TTree ("PROD") 및 Pmt 고정 배열 객체 고속 직렬화 (~280+ MB/s)          │
-└───────────────────────────────────────────────────────────────────────────────┘
-```
+### 2.1 PMT 양극 등가 회로, $50\ \Omega$ 전송선 정합, 및 전하 보존 정리
 
-### 계층별 핵심 엔지니어링 특징
+증배 이득이 $G_{\text{eff}}$인 PMT에 $N_{\text{pe}}$개의 1차 광전자가 도달하면, 양극(Anode)은 총 전하 $Q_{\text{anode}} = N_{\text{pe}}\,e\,G_{\text{eff}}$ ($e = 1.602176634\times 10^{-19}\text{ C}$)를 방출하는 고임피던스 전류원 $i_{\text{anode}}(t)$로 동작합니다. 양극 기생 정전용량 $C_{\text{anode}}$ ($\approx 5\text{ pF}$), 블리더 누설 저항 $R_{\text{leak}}$ ($\approx 100\text{ k}\Omega$), 직렬 댐핑 저항 $R_{\text{damp}}$ ($\approx 50\text{--}51\ \Omega$), 특성 임피던스 $Z_0 = \sqrt{L'/C'} = 50.0\ \Omega$ 동축 케이블(예: `RG-58C/U`, 단위길이 지연 $T_D = \ell/v_p \approx 5.0\text{ ns/m}$), 그리고 NKFADC500-4의 입력 종단 저항 $R_{\text{term}} = 50.0\ \Omega$로 구성된 결합 회로에서 부하 반사 계수 $\Gamma_L$ 및 송신단 반사 계수 $\Gamma_S$는 다음과 같습니다:
 
-1. **[Core 1] 초고속 무결성 수집 엔진 (`frontend_nkfadc500`)**
-   - **단일 하드웨어 규격 헤더 ([`NoticeFadc500Spec.hh`](./core/include/NoticeFadc500Spec.hh))**: 벤더 C SDK(`NoticeNKFADC500.c`, `usb3com.c`)와 전수 대조하여 모든 레지스터의 유효 범위(`CW`, `RL`, `DLY`, `THR`, `DACOFF`, `TLT`, `TMODE`, `DSR`)와 5-bit coarse 딜레이 한계($\texttt{CW} + \texttt{DLY} \le 31{,}992\text{ ns}$)를 사전 검증합니다.
-   - **32-bit `BCOUNT` & FX3 Burst 정렬**: 대용량 버퍼 적재 시 `65,536 KB (0x10000)` 16-bit 마스킹 랩어라운드를 방지하고, `128 KB`/`16 KB` FX3 Slave FIFO 버스트 정렬 스트리밍 및 수집 종료 후 DRAM 잔여 완결 패킷 회수(Post-Stop Tail Drain)를 보장합니다.
-   - **안전한 ADC/DRAM 정렬 및 CLI 오버라이드**: `ADCALIGN_500` 수행 시 `count == 0` 0-나눗셈(`SIGFPE`) 방지, `DRAMON` 무한 루프 타임아웃 방어, 페데스탈 자동 판독(`NKFADC500read_PED`), 런별 설정 파일(`.cfg`) 자동 백업, 및 `--thr <ADC>` 동적 문턱값 오버라이드를 지원합니다.
+$$\Gamma_L = \frac{R_{\text{term}} - Z_0}{R_{\text{term}} + Z_0} = 0, \qquad \Gamma_S(\omega) = \frac{Z_{\text{source}}(\omega) - Z_0}{Z_{\text{source}}(\omega) + Z_0}$$
 
-2. **[Core 2] 64-bit FPGA 디코딩 및 CERN ROOT 변환 엔진 (`production_nkfadc_500`)**
-   - **정밀 32-Byte 인터리브 헤더 해독**: 4채널 4바이트 스트라이드(`ch * 4`)로 인터리빙된 FPGA 패킷 헤더에서 `DataLength`, `RunNumber`, `TriggerType`, `TriggerDestination`, 64-bit `TriggerTime`, `TriggerNumber`, `LocalTriggerNumber` (`17..20*4`), `TriggerPattern` (`21..24*4`), 48-bit `LocalTriggerTime`을 오차 없이 분리합니다.
-   - **타임스탬프 32-bit 오버플로 완전 해결**: 기존 $1\text{ ns}$ 클럭을 32-bit 부호 있는 정수에 담아 $2.147\text{ s}$마다 음수로 뒤집히던 문제를 64-bit `ULong64_t` 및 하드웨어 카운터 언래핑(Unwrapping)으로 근본 해결했습니다.
-   - **파형 구별(PSD) 물리 변수 내장**: 전체 창 정류 적분(`Charge_Ch*`)과 함께 피크 기준 국소 창($[-10, 120]\text{ ns}$) 및 지연 꼬리 창($[16, 120]\text{ ns}$) 적분(`Qtotal_Ch*`, `Qtail_Ch*`, `PsdRatio_Ch*`)을 즉시 산출하여 `PROD` 트리에 기록합니다.
+여기서 $R_{\text{damp}} \approx Z_0 = 50\ \Omega$를 양극 출력단에 직렬 배치하면(Back-termination), 고주파 영역에서도 $\Gamma_S \to 0$이 되어 동축 케이블 양단의 다중 반사(Multiple Reflections / Baseline Ringing)가 완전히 억제됩니다. 직렬 댐핑 저항 $R_{\text{damp}}$는 양극 RC 시정수 $\tau_{\text{anode}} = (R_{\text{damp}} + R_{\text{term}})\,C_{\text{anode}} \approx 0.5\text{ ns}$에 의해 피크 전압 진폭을 약 절반으로 낮추고 펄스 폭을 약간 넓히지만, $R_{\text{leak}} \gg R_{\text{damp}} + R_{\text{term}}$이므로 **FADC 종단 저항 $R_{\text{term}}$에 전달되는 총 적분 전하량 $Q_{\text{FADC}}$는 파형 감쇠나 케이블 분산과 무관하게 보존**됩니다:
 
-3. **[Core 3 & Master GUI] PySide6 마스터 콘솔 (`fadc500_gui`)**
-   - **50배 가속된 NumPy 실시간 모니터 ([`OnlineMonitorTab.py`](./gui/widgets/OnlineMonitorTab.py))**: 파이썬 루프 없이 NumPy 벡터 비트 연산과 `deque` 링버퍼로 4채널 파형 및 파고·전하 히스토그램을 $20\text{ fps}$로 동시 렌더링합니다.
-   - **통합 경로 관리 ([`Paths.py`](./gui/core/Paths.py)) 및 SQLite3 런 카탈로그 ([`DatabaseManager.py`](./gui/core/DatabaseManager.py))**: 실행 작업 디렉터리에 구애받지 않는 단일 경로 해석기로 `data/run_catalog.db`에 수집·변환 이력, 처리 속도(`MB/s`), 이벤트 수, 연구자 코멘트를 영구 기록합니다.
+$$Q_{\text{FADC}} = \int_{0}^{T_{\text{gate}}} \frac{V_{\text{FADC}}(t)}{R_{\text{term}}}\,dt = Q_{\text{anode}}\left(\frac{R_{\text{leak}}}{R_{\text{leak}} + R_{\text{damp}} + R_{\text{term}}}\right) \approx \frac{100\text{ k}\Omega}{100.101\text{ k}\Omega}\,Q_{\text{anode}} = 0.999\,N_{\text{pe}}\,e\,G_{\text{eff}}$$
+
+따라서 이득 $G_{\text{eff}} = 3.25\times 10^6$ 기준 단일 광전자(SPE, $1\text{ PE}$)의 총 전하는 다음과 같이 ADC 적분 단위로 직결됩니다:
+
+$$Q_{1\text{pe}} = e\,G_{\text{eff}} \approx 0.5207\text{ pC} \implies \frac{Q_{1\text{pe}}}{q_{\text{LSB}}} = \frac{520.7\text{ fC}}{24.414\text{ fC/(ADC}\cdot\text{sample)}} \approx 21.33\text{ ADC}\cdot\text{sample}$$
+
+### 2.2 안티에일리어싱 필터, 정류 적분(Rectified Integration) 바이어스, 및 페데스탈 분산
+
+NKFADC500-4 입력단의 저역통과 안티에일리어싱 필터($R_{\text{aa}} \approx 10\ \Omega$, $C_{\text{aa}} \approx 15.9\text{ pF}$, $f_{-3\text{dB}} \approx 200\text{ MHz}$)와 PMT 전이시간 퍼짐($\text{TTS} \approx 1.1\text{ ns}$ FWHM)의 합성 임펄스 응답 $h_{\text{IRF}}(t)$는 단일 광전자 파형의 반치폭을 $\text{FWHM}_{1\text{pe}} \approx 6.2\text{--}6.4\text{ ns}$ ($\Delta t_{\text{samp}} = 2.0\text{ ns}$ 샘플링 격자에서 $\ge 3$ 샘플 이상)로 성형하여 언더샘플링(Undersampling) 진폭 손실을 방지합니다.
+
+파형 배열 $V_k$ ($k = 0, \dots, N_s - 1$)에서 트리거 이전(Pre-trigger) 무신호 구간 $N_{\text{ped}}$ 샘플의 평균으로 사건별 베이스라인 $\hat{B}$와 RMS 잡음 $\sigma_{\text{base}}$를 추정합니다:
+
+$$\hat{B} = \frac{1}{N_{\text{ped}}}\sum_{k=0}^{N_{\text{ped}}-1} V_k, \qquad \sigma_{\text{base}} = \sqrt{\frac{1}{N_{\text{ped}}-1}\sum_{k=0}^{N_{\text{ped}}-1}\left(V_k - \hat{B}\right)^2}$$
+
+이때 베이스라인 차감 파형 $w_k = (\hat{B} - V_k)\cdot(-1)^{\text{POL}}$에 대해 음수 잡음 클리핑을 포함한 **정류 전하 적분(Rectified Charge Integration)** $Q_{\text{raw}} = \sum_{k=0}^{N_s-1}\max(0, w_k)$을 수행하면, 가우시안 백색 잡음 $w_k \sim \mathcal{N}(0, \sigma_{\text{base}}^2)$의 반파 정류 기댓값 $\mathbb{E}[\max(0, w_k)] = \sigma_{\text{base}}/\sqrt{2\pi}$가 전체 창 길이 $N_s$에 걸쳐 누적되어 양(+)의 페데스탈 적분 오프셋 $Q_{\text{ped}}$를 형성합니다:
+
+$$\langle Q_{\text{ped}}\rangle_{\text{rect}} = \frac{N_s\,\sigma_{\text{base}}}{\sqrt{2\pi}} \quad \left(\text{예: } N_s = 496,\ \sigma_{\text{base}} \approx 1.19\text{ ADC} \implies Q_{\text{ped}} \approx 235\text{ ADC}\cdot\text{sample} \approx 5.74\text{ pC}\right)$$
+
+반면, 고정된 신호 게이트 $[k_1, k_2]$에서 클리핑 없이 부호 있는 선형 합산 $Q_{\text{lin}} = \sum_{k=k_1}^{k_2} w_k$를 사용할 경우 기댓값 편향은 $0$이며, 전하 분산은 샘플 자체 잡음과 베이스라인 추정 오차의 합으로 주어집니다:
+
+$$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + \frac{N_{\text{gate}}}{N_{\text{ped}}}\right), \qquad N_{\text{gate}} = k_2 - k_1 + 1$$
+
+### 2.3 FPGA 디지털 트리거 상태 머신, 5-Bit Coarse Delay 한계, 및 SDRAM 트레이닝
+
+1. **4종 디지털 트리거 모드 (`TMODE`)**:
+   - **Pulse Height (`Bit 0`, $\text{TMODE}=1$)**: 순시 진폭 $w_k \ge \text{THR}$ ($\text{THR} \in [1, 4095]\text{ ADC}$).
+   - **Pulse Width (`Bit 1`, $\text{TMODE}=2$)**: $w_k \ge \text{THR}$ 상태가 연속으로 $\text{PWT}$ ($\in [2, 1022]\text{ ns}$) 이상 유지될 때 트리거 발생.
+   - **Peak Sum (`Bit 2`, $\text{TMODE}=4$)**: 이동 합산 창 $\text{PSW}$ ($\in [2, 1022]\text{ ns}$) 동안의 면적 합 $\sum_{m=0}^{\text{PSW}/\Delta t - 1} w_{k-m} \ge \text{THR}_{\text{sum}}$ ($\text{THR}_{\text{sum}} \in [1, 67{,}108{,}863]$, 26-bit).
+   - **Peak Sum OR Pulse Width (`Bit 3`, $\text{TMODE}=8$)**: 두 조건의 논리합.
+2. **16-Bit Trigger Lookup Table (`TLT`) 진리표 인코딩**:
+   - 4채널 입력 조합 $(C_3, C_2, C_1, C_0) \in \{0, 1\}^4$의 16가지 상태에 대한 불리언 함수 $F(C_3,C_2,C_1,C_0) = \text{Bit}_{(8C_3 + 4C_2 + 2C_1 + C_0)}(\text{TLT})$로 정의됩니다:
+     $$\text{TLT} = \texttt{0xFFFE} \implies C_0 \lor C_1 \lor C_2 \lor C_3\ (\text{Any-Channel Inclusive OR}), \qquad \text{TLT} = \texttt{0x8000} \implies C_0 \land C_1 \land C_2 \land C_3\ (\text{4-Fold Coincidence})$$
+3. **5-Bit Coarse Delay 레지스터 오버플로 경계 조건**:
+   - 벤더 드라이버(`NoticeNKFADC500.c:179`)는 총 지연 시간 $D_{\text{tot}} = \text{CW} + \text{DLY}$ [$\text{ns}$]를 FPGA 레지스터 `0x20000007`에 기록할 때 다음과 같이 상위 비트와 하위 비트로 분할합니다:
+     $$\text{REG}_{\text{DLY}} = \left(\left\lfloor\frac{\text{CW} + \text{DLY}}{1000}\right\rfloor \ll 10\right) \,\Big|\, \left((\text{CW} + \text{DLY}) \bmod 1000\right)$$
+   - 이때 상위 Coarse 카운터가 **5-bit** ($0\dots 31 \implies \le 31{,}000\text{ ns}$)이고 하위 Fine 카운터가 $8\text{ ns}$ 클럭 단위 최대 $992\text{ ns}$이므로, 하드웨어 절대 상한은 다음과 같습니다:
+     $$\text{CW} + \text{DLY} \le 31{,}992\text{ ns}$$
+   - 본 프레임워크의 [`NoticeFadc500Spec.hh`](./core/include/NoticeFadc500Spec.hh)는 설정 파싱 및 하드웨어 초기화 시 $\text{CW} + \text{DLY} > 31{,}992\text{ ns}$ 오버플로로 인한 지연 시간 래핑(Wrapping)을 사전 차단합니다.
+4. **SDRAM 8-Lane LVDS 트레이닝 패턴 (`0xFFAA5500`) 및 Bit-Slip 정렬**:
+   - [`Fadc500Device::SafeAlignDRAM()`](./core/src/Fadc500Device.cpp)은 온보드 64 MB SDRAM의 8개 바이트 레인에 교번 비트 시계열(Training Pattern) `0xFFAA5500` (`11111111_10101010_01010101_00000000`)을 기록한 뒤, IDELAY 탭($0\dots 31$) 스캔으로 아이 다이어그램(Eye Diagram) 중앙 위상을 찾고 `BITSLIP` ($0\dots 3$)을 조정하여 워드 경계를 $100\%$ 동기화합니다.
 
 ---
 
-## 3. 디렉토리 및 소스 코드 구조 (Directory Structure)
+## 3. 하이브리드 4계층 아키텍처 및 설정 객체(`RunInfo`/`FadcBD`) 직렬화 파이프라인
+
+기존 텍스트 설정 파일(`.cfg`)만 참조하던 방식에서 나아가, 본 버전은 **파형 수집 시점(Frontend)에 하드웨어에 실제 인가·검증된 `RunInfo` 및 `FadcBD` C++ 데이터 구조체(`TObject`)를 즉시 ROOT 객체 파일(`_cfg.root`)로 직렬화**하고, **오프라인 변환 시점(Production)에 이 객체를 역직렬화하여 최종 분석 파일(`_prod.root`) 내부에 영구 내장(Embedding)**하는 무결성 메타데이터 파이프라인을 갖추고 있습니다.
+
+```text
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│                [Master GUI] PySide6 Control Panel (bin/fadc500_gui)                │
+│  • DaqTab (--thr Auto-Scan)  • OnlineMonitorTab (Okabe-Ito 20fps)  • ProductionTab │
+└────────────────┬─────────────────────────────────────────┬─────────────────────────┘
+                 │ QProcess Isolation                      │ Non-Blocking File Tail
+                 ▼                                         ▼
+┌──────────────────────────────────────────┐   ┌─────────────────────────────────────┐
+│ [Core 1] frontend_nkfadc500 (C++17)      │   │ [Core 3] Direct Binary Monitor      │
+│ 1. ConfigParser + CLI(--thr) 로드        │   │ • 4채널 인터리브 헤더(0,4,8,12 B)   │
+│ 2. Fadc500Device 레지스터 클램핑 & PED   ├──►│   NumPy 벡터 비트시프트 실시간 해독 │
+│ 3. RunInfo / FadcBD 객체 직렬화 저장:    │   │ • Okabe-Ito 색각 안전 4채널 렌더링  │
+│    ➜ <run>_cfg.root & <run>.cfg 생성     │   └─────────────────────────────────────┘
+│ 4. 2ms Pipeline Drain + USB3 .dat 덤프   │
+└────────────────┬─────────────────────────┘
+                 │ Raw Stream (<run>.dat) + Serialized Objects (<run>_cfg.root)
+                 ▼
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│ [Core 2] production_nkfadc_500 (C++17 + CERN ROOT 6)                               │
+│ 1. <run>_cfg.root 에서 RunInfo & FadcBD 객체 직접 역직렬화 (구버전은 .cfg 폴백)    │
+│ 2. 32-Byte 인터리브 헤더 해독, 64-bit TCB / 48-bit Local 클럭 언래핑               │
+│ 3. 손상 블록 발생 시 최대 1 MB 슬라이딩 윈도우 패킷 재동기화 (TryResyncToNextHeader)│
+│ 4. <run>_prod.root 내부에 TTree("PROD") + RunInfo + FadcBD 객체 동시 영구 직렬화   │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 측정 종료(`STOP`) 후 잔여 메모리 이월(Stale Buffer Bleed-Over) 원천 차단 메커니즘
+
+- **하드웨어 파이프라인 안정화 대기 ([`Fadc500Device::ClearAndFlushUSB`](./core/src/Fadc500Device.cpp))**: `NKFADC500stop` 호출 직후 $2\text{ ms}$ ($2{,}000\ \mu\text{s} \gg \max(\text{CW}+\text{DLY}+\text{RL}) \approx 163\ \mu\text{s}$) 동안 대기하여 FPGA 지연 파이프라인 내부를 통과 중인 마지막 트리거 사건이 SDRAM에 완전히 기록되게 한 뒤 `BCOUNT`를 드레인하며, `NKFADC500reset` 이후 2차 잔여 `BCOUNT` 재검사를 통해 Cypress FX3 FIFO에 프리페치된 잔여 블록이 다음 런으로 넘어가는 현상을 $100\%$ 차단합니다.
+- **소프트웨어 Producer–Consumer 동기화 ([`BinaryDaqManager.cpp`](./core/src/BinaryDaqManager.cpp))**: 원자적 `fProducerActive` 플래그를 통해 `ProducerWorker`의 Post-Stop Tail Drain이 완료될 때까지 `ConsumerWorker`가 조기 종료되지 않도록 보장하며, 새 런 시작 시 `fDataQueue` 잔여 버퍼를 전수 회수합니다.
+
+---
+
+## 4. 색각 이상자 배려(Okabe–Ito Palette) 및 고시인성 UI/UX 설계 표준
+
+본 프로젝트의 실시간 파형·스펙트럼 모니터([`OnlineMonitorTab.py`](./gui/widgets/OnlineMonitorTab.py))와 문서는 적록 색각 이상자(Deuteranopia / Protanopia) 및 청황 색각 이상자(Tritanopia) 연구자도 4개 채널 파형을 직관적으로 구별할 수 있도록, 국제 학술지(*Nature Methods*, *PTEP*, *JINST*) 표준인 **Okabe–Ito Colorblind-Safe Palette**와 고대비 타이포그래피를 적용하였습니다.
+
+| 채널 (Channel) | 색상 명칭 (Okabe–Ito Name) | HEX 코드 | RGB 값 `(R, G, B)` | 시각적 대비 특성 (Accessibility Notes) |
+| :---: | :--- | :---: | :---: | :--- |
+| **Channel 0** | **Okabe–Ito Blue** | `#0072B2` | `(0, 114, 178)` | 밝은 배경(`#ECEFF1`) 대비 최고 명도 대비율, 주 신호 채널용 |
+| **Channel 1** | **Okabe–Ito Vermilion** | `#D55E00` | `(213, 94, 0)` | 적록 색각 이상 시에도 순수 적색과 달리 황갈색 고대비로 명확히 분리 |
+| **Channel 2** | **Okabe–Ito Bluish Green** | `#009E73` | `(0, 158, 115)` | 청록 스펙트럼 대역으로 Channel 1(주홍)과 혼동 0% |
+| **Channel 3** | **Okabe–Ito Reddish Purple** | `#CC79A7` | `(204, 121, 167)` | 보조 트리거·감시 채널용 고채도 자주색 |
+
+---
+
+## 5. 디렉토리 구조 및 빌드·실행 가이드 (Build & Execution)
+
+### 디렉토리 구조
 
 ```text
 NKFADC500_mini_CLI/
-├── app/                          # [C++17 Applications] 수집·변환·모니터 실행 바이너리 소스
-│   ├── frontend_main.cpp         # 초고속 USB3 바이너리 수집기 (frontend_nkfadc500)
-│   ├── production_main.cpp       # 64-bit FPGA 디코더 및 ROOT 변환기 (production_nkfadc_500)
-│   └── online_monitor.cpp        # CLI/백엔드 실시간 바이너리 스트림 모니터
-├── core/                         # [C++17 DAQ Core] 하드웨어 래퍼, 스펙 검증, 비동기 버퍼 풀
-│   ├── include/
-│   │   ├── NoticeFadc500Spec.hh  # NKFADC500-4 하드웨어 상수·패킷 규격·레지스터 검증 헤더
-│   │   ├── Fadc500Device.hh      # Notice USB3 SDK C++ 래퍼 클래스
-│   │   ├── BinaryDaqManager.hh   # Producer-Consumer 멀티스레드 수집 매니저
-│   │   ├── RawBufferPool.hh      # 조건변수(CV) 기반 Zero-Allocation 메모리 풀
-│   │   └── ConfigParser.hh       # 10진수/16진수(0xFFFE) 및 범위 검증 설정 파서
-│   └── src/                      # 코어 엔진 구현부
-├── objects/                      # [CERN ROOT 6 Data Model] ROOT TTree 직렬화 객체 (libFADC500Objects.so)
-│   ├── include/                  # FadcBD, Pmt, RawChannel, RunInfo 헤더 및 LinkDef.h
-│   └── src/                      # 고정 배열 파형 주입 및 ROOT Dictionary 구현부
-├── gui/                          # [PySide6 Master GUI] Qt6 기반 통합 제어 대시보드
-│   ├── main.py                   # GUI 엔트리 포인트 (bin/fadc500_gui)
-│   ├── core/                     # Paths, DatabaseManager(SQLite3), ProcessManager, ConfigManager
-│   ├── windows/                  # MainWindow 오케스트레이터
-│   └── widgets/                  # DaqTab, OnlineMonitorTab, ProductionTab, RunCatalogTab, HvTab
+├── app/                          # [C++17 Executables] 수집·변환·모니터 메인 소스
+│   ├── frontend_main.cpp         # 고속 USB3 수집기 + RunInfo/FadcBD 객체 직렬화 (_cfg.root)
+│   ├── production_main.cpp       # 64-bit FPGA 디코더 + ROOT 트리 및 RunInfo/FadcBD 통합 직렬화
+│   └── online_monitor.cpp        # ROOT 캔버스 실시간 스트림 모니터
+├── core/                         # [C++17 DAQ Core] 하드웨어 규격, USB3 제어, 링버퍼 풀
+│   ├── include/NoticeFadc500Spec.hh # 벤더 검증 레지스터 상수·패킷 헤더 디코더 단일 규격 헤더
+│   └── src/                      # Fadc500Device, BinaryDaqManager, ConfigParser, ELog
+├── objects/                      # [CERN ROOT 6 Objects] TObject 파생 데이터 모델 (libFADC500Objects.so)
+│   ├── include/                  # RunInfo.hh, FadcBD.hh, Pmt.hh, RawChannel.hh, LinkDef.h
+│   └── src/                      # ROOT Dictionary 및 직렬화 구현부
+├── gui/                          # [PySide6 Master GUI] Qt6 + PyQtGraph 통합 제어 콘솔
 ├── notice_nkfadc500_4/           # [Bundled Vendor SDK] Notice Korea C 로우레벨 드라이버 소스
-├── config/                       # 하드웨어 구동 환경설정 템플릿 (settings.cfg)
-├── rules/                        # Linux udev USB3 장치 권한 자동 설정 스크립트
-├── offline_anal_500.cpp          # [ROOT Macro] 4-패널 파형 밀도·파고·전하·PSD 종합 분석기
-├── offline_anal_edu.cpp          # [ROOT Macro] 교육·연구용 Δt 애프터펄스 컷 및 물리량 분석기
-├── offline_spe.cpp               # [ROOT Macro] MINUIT2 다중 가우시안 단일 광전자(SPE) 절대이득 교정기
-├── offline_compton_edge.cpp      # [ROOT Macro] 액체섬광체 감마선 컴프턴 엣지(ERFC) 정밀 피팅기
-└── CMakeLists.txt                # 최상위 CMake 통합 빌드 (Notice SDK 자동 컴파일 및 RPATH 설정)
+├── config/settings.cfg           # 하드웨어 설정 템플릿
+└── offline_*.cpp                 # CERN ROOT 6 기반 고급 물리 분석 매크로 4종
 ```
 
----
+### 원클릭 빌드 및 실행
 
-## 4. 설치 및 빌드 가이드 (Build & Installation)
-
-### Step 1: 필수 의존성 패키지 준비
-
-- **C++ 빌드 환경**: Linux (`x86_64`), GCC (`C++17` 이상), CMake `3.16+`, `libusb-1.0-devel`, **CERN ROOT 6.x** (`Minuit2` 활성화 권장)
-- **Python GUI 환경**: Python `3.8+`
+시스템에 `/usr/local/notice` (`$NKHOME`)가 설치되어 있지 않아도 `CMakeLists.txt`가 저장소 내 `notice_nkfadc500_4/` C 드라이버 소스를 자동으로 컴파일하여 `./lib`에 배치하고 상대 `RPATH` (`$ORIGIN/../lib`)로 연결합니다.
 
 ```bash
+# 1. Python GUI 의존성 설치
 pip3 install PySide6 pyqtgraph numpy
-```
 
-### Step 2: Notice 로우레벨 SDK 및 메인 프로젝트 원클릭 통합 빌드
-
-최신 `CMakeLists.txt`는 시스템에 `/usr/local/notice` (`$NKHOME`)가 설치되어 있지 않더라도, 저장소 내 번들된 `notice_nkfadc500_4/notice/src/` 소스(`libnkusb.so`, `libusb3com.so`, `libNoticeNKFADC500.so`)를 자동으로 컴파일하여 `./lib`에 배치하고 상대 `RPATH` (`$ORIGIN/../lib`)로 링킹합니다. 별도의 `root`(`su`) 권한 없이 일반 사용자 계정에서 즉시 빌드할 수 있습니다.
-
-```bash
-# 1. CERN ROOT 환경 로드 후 빌드 수행
+# 2. C++17 코어 및 Notice SDK 통합 빌드 (root 권한 불필요)
 source /usr/local/bin/thisroot.sh
 mkdir -p build && cd build
 cmake ..
-make -j$(nproc)
+cmake --build . -j$(nproc)
 cd ..
-```
 
-> **[선택 사항] 시스템 전역 `/usr/local/notice` 수동 설치가 필요한 경우**:
-> ```bash
-> su
-> mkdir -p /usr/local/include /usr/local/lib
-> source /usr/local/notice/notice_env.sh && source /usr/local/bin/thisroot.sh
-> cd /usr/local/notice/src/nkusb/nkusb && make clean && make install
-> cd ../../usb3com/usb3com && make clean && make install
-> cd ../../nkfadc500/nkfadc500 && make clean && make install
-> exit
-> ```
-
-### Step 3: GUI 마스터 콘솔 및 CLI 실행 방법
-
-```bash
-# ===================================================================
-# [방법 A] PySide6 마스터 GUI 콘솔 실행 (권장)
-# ===================================================================
+# 3-A. PySide6 GUI 마스터 콘솔 실행
 ./bin/fadc500_gui
 
-# ===================================================================
-# [방법 B] 터미널 CLI 단독 실행 (배치 스크립트 및 원격 서버 운용)
-# ===================================================================
-# 1) 프론트엔드 고속 바이너리 수집 (-n: 목표 이벤트 수, -t: 수집 시간[초], --thr: 전 채널 문턱값 오버라이드)
+# 3-B. CLI 단독 수집 및 ROOT 프로덕션 실행
 ./bin/frontend_nkfadc500 -f config/settings.cfg -o data/run_0001.dat -n 100000 --thr 30
-
-# 2) 수집된 바이너리(.dat)를 CERN ROOT 트리(_prod.root)로 고속 변환 (-w: 파형 배열 포함)
 ./bin/production_nkfadc_500 data/run_0001.dat -w
 ```
 
 ---
 
-## 5. `PROD` ROOT 플랫 트리 스키마 및 물리량 정의 (ROOT Data Schema)
+## 6. `PROD` ROOT 트리 스키마 및 내장 메타데이터 객체
 
-`production_nkfadc_500` 실행 시 생성되는 `*_prod.root` 파일 내부의 `PROD` 트리는 즉각적인 C++/Python(`uproot`) 분석을 위해 아래와 같은 표준화된 브랜치를 제공합니다 (`i = 0, 1, 2, 3`).
+`production_nkfadc_500`이 생성하는 `<run>_prod.root` 파일 내부에는 아래 **3종의 최상위 ROOT 객체**가 함께 저장됩니다:
 
-| 브랜치 이름 (Branch Name) | 데이터 타입 | 물리적 정의 및 단위 (Physical Meaning & Unit) |
+1. **`RunInfo` (`Key: "RunInfo"`, `class RunInfo : public TObject`)**: 런 번호(`GetRunNumber()`), 샘플링 간격(`GetSamplingNs()`), 보드 배열(`GetFadcBD(0)`).
+2. **`FadcBD` (`Key: "FadcBD"`, `class FadcBD : public TObject`)**: 수집 시점의 보드 레지스터 전체 스냅샷(`GetMID()`, `GetSAMPLING()`, `GetRL()`, `GetTLT()`, `GetTRIGEN()`, `GetPRESCALE()`, `GetZEROSUP()`, 및 채널별 `GetTHR(ch)`, `GetDACOFF(ch)`, `GetPOL(ch)`, `GetDLY(ch)`, `GetCW(ch)`, `GetTMODE(ch)`, 하드웨어 판독 페데스탈 `GetPED(ch)`).
+3. **`PROD` (`Key: "PROD"`, `class TTree`)**: 이벤트별 물리량 및 파형 플랫 트리.
+
+| `PROD` 트리 브랜치 | ROOT 타입 | 수식 및 물리적 정의 (Mathematical Definition & Unit) |
 | :--- | :---: | :--- |
-| `EventNumber` | `Int_t` | 순차 이벤트 인덱스 ($0, 1, 2, \dots$) |
-| `TriggerTime` / `LocalTriggerTime` | `ULong64_t` | 64-bit TCB 절대 시각 / 48-bit 보드 로컬 트리거 시각 [$\text{ns}$] (오버플로 보정 완료) |
-| `TriggerType` / `TriggerPattern` | `Int_t` | 트리거 타입 및 4채널 보드 트리거 비트마스크 |
-| `Baseline_Ch{i}` / `BaselineRMS_Ch{i}` | `Float_t` | 프리트리거 초기 $80\text{ samples}$ ($160\text{ ns}$) 평균 페데스탈 및 표준편차 [$\text{ADC}$] |
-| `Amplitude_Ch{i}` | `Float_t` | 베이스라인 차감 후 최대 파고 진폭 [$\text{ADC}$] ($\times 0.61035 \to \text{mV}$) |
-| `PeakTime_Ch{i}` | `Float_t` | 파형 내 최대 피크 도달 시각 [$\text{ns}$] ($\text{sample index} \times 2.0\text{ ns}$) |
-| `Charge_Ch{i}` | `Float_t` | 전체 기록 창($N_s$ 샘플) 정류 적분 전하 합 $\sum \max(0, w_k)$ [$\text{ADC}\cdot\text{sample}$] |
-| `Qtotal_Ch{i}` / `Qtail_Ch{i}` | `Float_t` | 피크 기준 국소 창($[-10, 120]\text{ ns}$) 및 지연 꼬리 창($[16, 120]\text{ ns}$) 적분 [$\text{ADC}\cdot\text{sample}$] |
-| `PsdRatio_Ch{i}` | `Float_t` | 파형 구별(PSD) 지연 분율 $\text{PSD} = Q_{\text{tail}} / Q_{\text{total}} \in [0, 1]$ |
-| `Waveform_Ch{i}` (`-w` 옵션) | `Float_t[N]` | 베이스라인 차감 및 극성 정렬된 파형 배열 [$\text{ADC}$] |
+| `EventID` / `TriggerNumber` | `UInt_t` | 순차 이벤트 인덱스 / FPGA 하드웨어 트리거 번호 |
+| `TriggerTime` / `LocalTriggerTime` | `ULong64_t` | 64-bit TCB 시각 / 48-bit 보드 로컬 시각 $t_{\text{trig}} = t_{\text{fine}} + 1000\,t_{\text{coarse}}$ [$\text{ns}$] |
+| `TriggerPattern` / `TriggerType` | `UInt_t` | 4채널 트리거 발생 비트마스크 (`Bit 0..3`) 및 트리거 유형 |
+| `ModuleID` / `RunNumber` | `UInt_t` / `Int_t` | 보드 MID 및 런 번호 |
+| `RecordLength` / `SamplingNs` | `Int_t` / `Double_t` | 이벤트당 샘플 수 $N_s$ 및 샘플링 간격 $\Delta t_{\text{samp}}$ [$\text{ns}$] |
+| `HwPedestal_Ch{i}` | `Int_t` | 패킷 헤더에 기록된 FPGA 하드웨어 페데스탈 [$\text{ADC}$] |
+| `Baseline_Ch{i}` / `BaselineRMS_Ch{i}` | `Double_t` | 프리트리거 구간 평균 베이스라인 $\hat{B}_i$ 및 잡음 $\sigma_{\text{base},i}$ [$\text{ADC}$] |
+| `Amplitude_Ch{i}` | `Double_t` | 피크 진폭 $A_i = \max_k w_{i,k}$ [$\text{ADC}$] ($\times 0.61035 \to \text{mV}$) |
+| `PeakTime_Ch{i}` | `Double_t` | 피크 도달 시각 $t_{\text{peak},i} = k_{\max,i}\cdot\Delta t_{\text{samp}}$ [$\text{ns}$] |
+| `Charge_Ch{i}` | `Double_t` | 전체 창 정류 적분 $Q_i = \sum_{k=0}^{N_s-1}\max(0, w_{i,k})$ [$\text{ADC}\cdot\text{sample}$] |
+| `Qtotal_Ch{i}` / `Qtail_Ch{i}` | `Double_t` | 피크 기준 국소 창($[-10, +120]\text{ ns}$) 및 지연 꼬리 창($[+16, +120]\text{ ns}$) 적분 |
+| `PsdRatio_Ch{i}` | `Double_t` | 전하 비교 파형 구별비 $\text{PSD}_i = Q_{\text{tail},i} / Q_{\text{total},i} \in [0, 1]$ |
+| `wTime_Ch{i}` / `wDrop_Ch{i}` (`-w`) | `vector<double>` | 시간 축 배열 [$\text{ns}$] 및 베이스라인 차감 파형 배열 $w_{i,k}$ [$\text{ADC}$] |
 
----
-
-## 6. 교육 및 연구용 고급 오프라인 분석 파이프라인 (ROOT Offline Macros)
-
-저장소 루트에 포함된 4종의 CERN ROOT C++ 매크로는 `2.5 Vpp` ($50\ \Omega$) 물리 환산 계수($0.61035\text{ mV/ADC}$, $0.024414\text{ pC/ADC}\cdot\text{sample}$)와 동적 `RecordLength`/`SamplingNs` 스케일링을 자동 적용합니다.
-
-1. **`offline_anal_500.cpp` (4-패널 종합 진단 대시보드)**:
-   - 파형 누적 밀도도(Waveform Persistence), 파고 진폭 분포(`mV`/`ADC`), 전하 적분 스펙트럼(`pC`/`ADC·sample`), 및 2D PSD(`PsdRatio` vs `Charge`) 산점도를 한 화면에 렌더링합니다.
-2. **`offline_anal_edu.cpp` (물리 컷 & $\Delta t$ 애프터펄스 필터링 뷰어)**:
-   - 진폭 문턱 컷(Amplitude Cut)을 통한 다크 노이즈 제거와 64-bit 클럭 기반 사건 간 시간차($\Delta t$) 컷을 통한 PMT 후속 펄스(Afterpulse) 제거 과정을 단계별로 시각화합니다. (구버전/신버전 ROOT 간 `libTreePlayer` 충돌 방지를 위해 순수 `TBranch`/`TLeaf` 엔진으로 구현되었습니다.)
-3. **`offline_spe.cpp` (MINUIT2 다중 가우시안 단일 광전자 교정기)**:
-   - 저광량 스펙트럼에서 **Pedestal + 1-PE + 2-PE 다중 가우시안(Multi-Gaussian)** 모델을 `MINUIT2`로 정밀 피팅하여 각 성분을 분해 렌더링하고 PMT의 절대 증배 이득(Absolute Gain $G$)을 도출합니다.
-4. **`offline_compton_edge.cpp` (감마선 컴프턴 엣지 ERFC 피팅기)**:
-   - $^{137}\text{Cs}$ ($E_{\text{CE}} = 477.3\text{ keV}$) 및 $^{60}\text{Co}$ ($963.4, 1118.1\text{ keV}$) 감마선 연속체의 고전하 어깨 영역을 역탐색하여 상보 오차함수(`ERFC`) 모델로 컴프턴 엣지 위치(`pC`)와 에너지 분해능을 추출합니다.
-
-```bash
-# 실행 예시 (CERN ROOT 6 환경)
-root -l 'offline_anal_500.cpp("data/run_0001_prod.root", 0, 30.0)'
-root -l 'offline_spe.cpp("data/run_0001_prod.root", 0)'
-root -l 'offline_compton_edge.cpp("data/run_0001_prod.root", 0, 2000.0)'
-root -l 'offline_anal_edu.cpp("data/run_0001_prod.root", 0, 30.0, 10.0)'
+```cpp
+// ROOT 매크로에서 내장된 하드웨어 설정 객체(RunInfo / FadcBD) 즉시 조회 예시
+TFile* f = TFile::Open("data/run_0001_prod.root", "READ");
+FadcBD* bd = (FadcBD*)f->Get("FadcBD");
+printf("Ch0 THR = %d ADC, DLY = %d ns, HW PED = %d ADC\n", bd->GetTHR(0), bd->GetDLY(0), bd->GetPED(0));
 ```
 
 ---
 
-## 7. 정적/동적 코드 분석 및 4단계 E2E 검증 요약 (Static & Dynamic Verification)
+## 7. 고급 오프라인 물리 분석 매크로 (SPE, Compton Edge, PSD)
 
-본 코드베이스는 C++17 DAQ 코어, Notice 벤더 C SDK 인터페이스, CERN ROOT 6 직렬화, 및 PySide6 GUI 전 계층에 걸쳐 **정적 분석(Static Analysis)**과 **4단계 종단간 동적 검증(4-Stage End-to-End Dynamic Verification)**을 통과했습니다:
-
-- **Stage 1 (C++17 & CMake 클린 빌드 감사)**: 번들된 Notice C SDK 자동 컴파일, `ROOT_GENERATE_DICTIONARY` 모듈명(`MODULE FADC500Objects`) `.rootmap`/`.pcm` 정합성 검증, `RawBuffer` Rule-of-5 메모리 안전성 및 스레드 안전 `ELog` (`localtime_r` + `std::mutex`) 검증 완료 (`0 Warnings, 0 Errors`).
-- **Stage 2 (합성 FPGA 패킷 $\to$ `production_nkfadc_500` 비트 정확도 검증)**: 실제 NKFADC500-4 32-byte 인터리브 헤더, USB3 `0xFF` 버스트 패딩, 알려진 지수 감쇠 파형 및 48-bit/64-bit 클럭 롤오버 패킷을 주입하여 `LocalTriggerNumber`, `TriggerPattern`, `TriggerTime`, `Amplitude`, `Charge`, `PsdRatio` 복원 정확도 $100\%$ 확인.
-- **Stage 3 (CERN ROOT 6 오프라인 매크로 배치 실행 검증)**: 생성된 `_prod.root` 트리를 대상으로 `offline_anal_500.cpp`, `offline_anal_edu.cpp`, `offline_spe.cpp`, `offline_compton_edge.cpp` 4종 매크로 무오류 배치 실행 검증 완료.
-- **Stage 4 (PySide6 GUI 헤드리스 통합 및 NumPy 모니터 파서 검증)**: `Paths.py` 단일 DB 경로, `DaqTab` `--thr` 자동 스캔, `HvTab` 위젯 바인딩, `OnlineMonitorTab` NumPy 벡터 디코더, `ProductionTab` 정규식 및 프로세스 종료 클린업 무결성 확인.
+1. **단일 광전자(SPE) 절대 이득 교정 ([`offline_spe.cpp`](./offline_spe.cpp))**:
+   - 저광량 포아송 광원 환경에서 수집된 전하 스펙트럼을 페데스탈($n=0$)과 $n$-광전자 가우시안 합성 모델(Bellamy *et al.*, *NIM-A* **343**, 484 (1994))로 `MINUIT2` 피팅하여 절대 증배 이득 $G_{\text{eff}} = Q_{1\text{pe}} / e$를 도출합니다:
+     $$f_{\text{SPE}}(Q) = \frac{A_0}{\sqrt{2\pi}\sigma_0}\exp\!\left[-\frac{(Q - Q_0)^2}{2\sigma_0^2}\right] + \sum_{n=1}^{2}\frac{A_n}{\sqrt{2\pi n}\,\sigma_1}\exp\!\left[-\frac{(Q - Q_0 - n Q_{1\text{pe}})^2}{2n\sigma_1^2}\right]$$
+2. **감마선 컴프턴 엣지(Compton Edge) 정밀 피팅 ([`offline_compton_edge.cpp`](./offline_compton_edge.cpp))**:
+   - 저-$Z$ 액체섬광체에서 입사 감마선 에너지 $E_\gamma$에 대한 클라인–니시나(Klein–Nishina) 최대 반도 전자 에너지(Compton Edge, $\theta = \pi$ 후방산란)는 다음과 같습니다:
+     $$E_{\text{CE}}(E_\gamma) = \frac{E_\gamma}{1 + \dfrac{m_e c^2}{2 E_\gamma}} \quad \left(^{137}\text{Cs } 661.7\text{ keV} \implies 477.3\text{ keV};\ ^{60}\text{Co } 1173.2, 1332.5\text{ keV} \implies 963.4, 1118.1\text{ keV}\right)$$
+   - 검출기 에너지 분해능 가우시안과 합성곱된 연속체 끝단을 상보 오차함수($\text{erfc}$) 모델로 피팅하여 컴프턴 엣지 전하 $Q_{\text{CE}}$ [$\text{pC}$]와 상대 분해능 $\sigma_E / E_{\text{CE}}$를 추출합니다.
+3. **종합 진단 및 $\Delta t$ 애프터펄스 필터링 ([`offline_anal_500.cpp`](./offline_anal_500.cpp), [`offline_anal_edu.cpp`](./offline_anal_edu.cpp))**:
+   - 2D 파형 잔상(Persistence), 진폭/전하 분포, 2D PSD(`PsdRatio` vs `Charge`) 산점도, 및 사건 간 시간차 $\Delta t_k = t_{\text{trig},k} - t_{\text{trig},k-1}$ 컷을 통한 이온 피드백 애프터펄스 제거를 수행합니다.
 
 ---
 
-## 8. 인공지능 활용 선언 (Declaration of AI Use in Static/Dynamic Verification)
+## 8. 정적/동적 코드 분석 및 4단계 E2E 무결성 검증 요약
+
+- **Stage 1 (C++17 & CMake 클린 빌드 감사)**: 번들 Notice SDK 자동 빌드, `MODULE FADC500Objects` ROOT 6 딕셔너리 정합성, `RawBuffer` Rule-of-5, 스레드 안전 `ELog` 검증 완료 (`0 Warnings, 0 Errors`).
+- **Stage 2 (합성 FPGA 스트림 & `RunInfo`/`FadcBD` 객체 직렬화 E2E 검증)**: 32-Byte 인터리브 헤더, USB3 `0xFF` 버스트 패딩, 37-Byte 중도 손상 복구(`TryResyncToNextHeader` $100/100$ 복원), Zero-Suppression 헤더 전용 스트림($25/25$ 복원), 및 `_cfg.root` $\to$ `_prod.root` `RunInfo`/`FadcBD` 객체 직렬화·역직렬화 $100\%$ 일치 확인.
+- **Stage 3 (CERN ROOT 6 오프라인 매크로 배치 검증)**: 4종 오프라인 매크로 배치 실행 및 `2.5 Vpp` ($50\ \Omega$) 물리 스케일 정합성 확인.
+- **Stage 4 (PySide6 GUI & Okabe–Ito 라이브 모니터 검증)**: `Paths.py` 단일 DB 경로, `DaqTab` `--thr` 자동 스캔, `OnlineMonitorTab` NumPy 벡터 디코더 및 `.cfg` 자동 동기화, `ProcessManager` 세대 토큰(Generation-Token) 보호 검증 완료.
+
+---
+
+## 9. 인공지능 활용 선언 (Declaration of AI Use in Static/Dynamic Verification)
 
 본 프로젝트의 하드웨어 제어 아키텍처 설계, 물리 분석 알고리즘 구현, 및 실험 데이터 검증은 연구자(Author)의 직접적인 주도하에 수행되었습니다. 소프트웨어의 신뢰성과 코드 무결성을 극대화하기 위해, 연구자는 **Google Antigravity (`agy`)** 에이전틱 환경의 **Argon (`Argon`)** 모델을 아래의 **정적/동적 코드 분석 및 교차 검증 도구**로 활용하였습니다:
 
 1. **정적 코드 분석 및 벤더 SDK 규격 대조 (Static Code Analysis & Hardware Spec Auditing)**:
-   - **Argon** 모델을 활용하여 C++17 코어(`frontend_nkfadc500`, `production_nkfadc_500`), Notice Korea 로우레벨 C SDK(`NoticeNKFADC500.c`, `usb3com.c`), 및 PySide6 GUI 스크립트 전반의 메모리 수명주기(Rule-of-5), 멀티스레드 동기화, 레지스터 유효 경계(`NoticeFadc500Spec.hh`), 64-bit 타이밍 오버플로, 및 FPGA 헤더 바이트 오프셋을 전수 정적 분석하고 리팩터링하였습니다.
+   - **Argon** 모델을 활용하여 C++17 코어(`frontend_nkfadc500`, `production_nkfadc_500`), Notice Korea 로우레벨 C SDK(`NoticeNKFADC500.c`, `usb3com.c`), 및 PySide6 GUI 스크립트 전반의 메모리 수명주기(Rule-of-5), 멀티스레드 동기화(Post-Stop Tail Drain 및 2 ms FPGA 파이프라인 안정화), 레지스터 유효 경계(`NoticeFadc500Spec.hh`), 64-bit 타이밍 오버플로, 및 `RunInfo`/`FadcBD` 객체 직렬화 파이프라인을 전수 정적 분석하고 리팩터링하였습니다.
 2. **종단간 동적 회귀 검증 및 물리 스케일 감사 (Dynamic E2E Regression & Physics Calibration Testing)**:
-   - **Argon** 모델을 통해 합성 FPGA 바이너리 스트림 생성부터 ROOT `PROD` 트리 변환, 4종의 오프라인 물리 분석 매크로(`2.5 Vpp`, $50\ \Omega$ 전하·전압 교정), 및 PySide6 GUI 파서까지의 4단계 자동화 동적 테스트(Dynamic E2E Test Suite)를 수행하여 런타임 예외와 심볼 충돌을 검증·해결하였습니다.
+   - **Argon** 모델을 통해 합성 FPGA 바이너리 스트림 생성부터 ROOT `PROD` 트리 및 `RunInfo`/`FadcBD` 객체 직렬화, 4종의 오프라인 물리 분석 매크로(`2.5 Vpp`, $50\ \Omega$ 전하·전압 교정), 및 PySide6 GUI 파서까지의 4단계 자동화 동적 테스트(Dynamic E2E Test Suite)를 수행하여 런타임 예외와 심볼 충돌을 검증·해결하였습니다.
 3. **연구자 최종 검수 및 책임 (Author Oversight & Responsibility)**:
    - AI가 제안하거나 리팩터링한 모든 C++/Python 코드와 빌드 설정은 연구자가 실제 서버 및 검출기 데이터 환경에서 직접 실행·검수하였으며, 최종 소프트웨어 및 물리 분석 결과에 대한 모든 학술적·기술적 책임은 전적으로 연구자에게 있습니다.
 
 ---
 
-## 9. 감사의 글 (Acknowledgements)
+## 10. 감사의 글 (Acknowledgements)
 
 본 DAQ 시스템이 완성되기까지 보이지 않는 곳에서 헌신해 주신 많은 분들과 인프라에 깊은 감사를 표합니다.
 
@@ -247,7 +278,7 @@ root -l 'offline_anal_edu.cpp("data/run_0001_prod.root", 0, 30.0, 10.0)'
 
 ---
 
-## 10. GUI 마스터 패널 및 실측 분석 화면 (UI/UX & Experimental Screenshots)
+## 11. GUI 마스터 패널 및 실측 분석 화면 (UI/UX & Experimental Screenshots)
 
 아래 화면들은 실제 NKFADC500 Mini 장비와 검출기 테스트벤치에서 측정·수집된 파형, 스펙트럼, 및 마스터 제어 패널 구동 결과입니다.
 

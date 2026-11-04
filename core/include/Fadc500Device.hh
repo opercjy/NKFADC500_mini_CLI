@@ -11,7 +11,7 @@ private:
     bool EnableDramWithTimeout(bool enable);
     void SafeAlignADC500();
     bool SafeAlignDRAM();
-    void VerifyRegistersAndLogPedestals(const FadcBD* bdConfig);
+    void VerifyRegistersAndLogPedestals(FadcBD* bdConfig);
 
 public:
     explicit Fadc500Device(int sid);

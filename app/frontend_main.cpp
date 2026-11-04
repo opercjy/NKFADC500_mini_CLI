@@ -14,6 +14,7 @@
 #include "ELog.hh"
 #include "NoticeFadc500Spec.hh"
 #include "RunInfo.hh"
+#include "TFile.h"
 #include "TString.h"
 
 namespace {
@@ -109,12 +110,17 @@ int main(int argc, char** argv) {
         ELog::Print(ELog::INFO, Form("Applied CLI threshold override: THR = %d on all channels.", appliedThrLog));
     }
 
-    // Ensure output parent directory exists and safely back up companion .cfg next to output .dat
+    // Ensure output parent directory exists before hardware init & DAQ start
+    std::filesystem::path outPath(outFile);
+    if (outPath.has_parent_path()) {
+        std::error_code ec;
+        std::filesystem::create_directories(outPath.parent_path(), ec);
+    }
+
+    BinaryDaqManager daqManager(&runInfo);
+
+    // Serialize hardware-verified RunInfo / FadcBD data structure (<run>_cfg.root) + text backup (<run>.cfg)
     try {
-        std::filesystem::path outPath(outFile);
-        if (outPath.has_parent_path()) {
-            std::filesystem::create_directories(outPath.parent_path());
-        }
         std::filesystem::path backupCfgPath = outPath;
         backupCfgPath.replace_extension(".cfg");
         std::filesystem::copy_file(configFile, backupCfgPath, std::filesystem::copy_options::overwrite_existing);
@@ -122,12 +128,26 @@ int main(int argc, char** argv) {
             std::ofstream ofs(backupCfgPath, std::ios::app);
             ofs << "\n# CLI/Scan Threshold Override\nTHR " << appliedThrLog << "\n";
         }
-        ELog::Print(ELog::INFO, Form("Configuration backed up to: %s", backupCfgPath.string().c_str()));
+
+        std::filesystem::path cfgRootPath = outPath;
+        cfgRootPath.replace_extension("");
+        cfgRootPath += "_cfg.root";
+        TFile* cfgRootFile = TFile::Open(cfgRootPath.string().c_str(), "RECREATE");
+        if (cfgRootFile && !cfgRootFile->IsZombie()) {
+            runInfo.Write("RunInfo", TObject::kSingleKey);
+            if (FadcBD* bd0 = runInfo.GetFadcBD(0)) {
+                bd0->Write("FadcBD", TObject::kSingleKey);
+            }
+            cfgRootFile->Close();
+            delete cfgRootFile;
+        }
+        ELog::Print(ELog::INFO,
+            Form("Configuration serialized to: %s (and %s)",
+                 cfgRootPath.string().c_str(), backupCfgPath.string().c_str()));
     } catch (const std::exception& e) {
-        ELog::Print(ELog::WARNING, std::string("Could not back up configuration file: ") + e.what());
+        ELog::Print(ELog::WARNING, std::string("Could not serialize configuration metadata: ") + e.what());
     }
 
-    BinaryDaqManager daqManager(&runInfo);
     daqManager.Start(outFile, maxEvents, maxTime);
 
     while (daqManager.IsRunning()) {

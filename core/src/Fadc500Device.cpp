@@ -171,7 +171,7 @@ bool Fadc500Device::SafeAlignDRAM() {
     return alignedLanes == 8;
 }
 
-void Fadc500Device::VerifyRegistersAndLogPedestals(const FadcBD* bdConfig) {
+void Fadc500Device::VerifyRegistersAndLogPedestals(FadcBD* bdConfig) {
     if (!bdConfig) return;
 
     const unsigned long rb_dsr = NKFADC500read_DSR(fSid);
@@ -197,6 +197,9 @@ void Fadc500Device::VerifyRegistersAndLogPedestals(const FadcBD* bdConfig) {
         const unsigned long rb_thr = NKFADC500read_THR(fSid, cid);
         const unsigned long rb_dly = NKFADC500read_DLY(fSid, cid);
         const unsigned long rb_tm  = NKFADC500read_TM(fSid, cid);
+        if (ped != 0xFFFFFFFFUL) {
+            bdConfig->SetPED(ch, static_cast<int>(ped & 0x0FFFUL));
+        }
 
         const unsigned long exp_dly = std::min<unsigned long>(
             static_cast<unsigned long>(NoticeFadc500Spec::kMaxDlyNs),

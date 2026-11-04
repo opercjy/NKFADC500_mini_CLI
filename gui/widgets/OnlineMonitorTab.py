@@ -62,7 +62,9 @@ class OnlineMonitorTab(QWidget):
         self.curves_wave = {}
         self.curves_spec = {}
 
-        self.colors = [(220, 30, 30), (30, 160, 30), (30, 100, 220), (220, 120, 0)]
+        # Okabe-Ito colorblind-safe 4-channel palette:
+        # Ch0: #0072B2 (Blue), Ch1: #D55E00 (Vermilion), Ch2: #009E73 (Bluish Green), Ch3: #CC79A7 (Reddish Purple)
+        self.colors = [(0, 114, 178), (213, 94, 0), (0, 158, 115), (204, 121, 167)]
         self._init_ui()
 
     def _init_ui(self):

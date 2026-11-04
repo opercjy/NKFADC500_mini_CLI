@@ -17,6 +17,7 @@ FadcBD::FadcBD()
         fPCT[i] = 1;
         fPCI[i] = 1000;
         fPWT[i] = 100;
+        fPED[i] = 0;
     }
 }
 
