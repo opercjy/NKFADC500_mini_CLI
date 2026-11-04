@@ -7,14 +7,14 @@
 [![PySide6 GUI](https://img.shields.io/badge/GUI-PySide6_(Qt6)_%2B_Okabe--Ito_Palette-E69F00?style=for-the-badge&logo=qt&logoColor=black)](https://wiki.qt.io/Qt_for_Python)
 [![Verification](https://img.shields.io/badge/Verification-4--Stage_E2E_Verified_(Argon)-CC79A7?style=for-the-badge)](#9-인공지능-활용-선언-declaration-of-ai-use-in-staticdynamic-verification)
 
-> **[Notice Hardware Maintenance & Development Declaration]**  
-> 본 프레임워크는 **Notice Korea**에서 제공한 로우 레벨 API(`libnkusb`, `libusb3com`, `libNoticeNKFADC500`) 및 하드웨어 래퍼를 기반으로 작성되었습니다. 고에너지 물리(HEP)·핵물리·방사선 검출기 실험의 장기 운용과 고율 트리거(High-Rate Trigger & Noise) 환경에서도 장비가 무결하게 동작할 수 있도록, 연구자 주도하에 C++17 코어 아키텍처 재설계, 하드웨어 설정 객체(`RunInfo`/`FadcBD`) 직렬화, 64-bit FPGA 패킷 디코딩 정밀화, 및 지속적인 유지보수(Maintenance)가 이루어지고 있는 독립 오픈소스 프로젝트입니다.
+> **[Notice Hardware Maintenance & Development Declaration — Target Hardware Revision: Legacy Desktop Mini Box]**  
+> 본 프레임워크는 **Notice Korea**의 `NKFADC500` 제품군 중 **이전 버전(구형/초기형 독립 탁상용 미니 박스 리비전, Legacy Standalone Desktop Mini Box Revision)**과 해당 로우 레벨 API(`libnkusb`, `libusb3com`, `libNoticeNKFADC500`)를 기반으로 작성되었습니다. 고에너지 물리(HEP)·핵물리·방사선 검출기 실험의 장기 운용과 고율 트리거(High-Rate Trigger & Noise) 환경에서도 장비가 무결하게 동작할 수 있도록, 연구자 주도하에 C++17 코어 아키텍처 재설계, 하드웨어 설정 객체(`RunInfo`/`FadcBD`) 직렬화, 64-bit FPGA 패킷 디코딩 정밀화, 및 지속적인 유지보수(Maintenance)가 이루어지고 있는 독립 오픈소스 프로젝트입니다.
 
 ---
 
 ## 목차 (Table of Contents)
 
-1. [시스템 개요 및 하드웨어 계측 규격 (Hardware & Metrology Specifications)](#1-시스템-개요-및-하드웨어-계측-규격-hardware--metrology-specifications)
+1. [시스템 개요, 대상 하드웨어 버전(구형 미니 박스) 식별 및 계측 규격](#1-시스템-개요-대상-하드웨어-버전구형-미니-박스-식별-및-계측-규격)
 2. [프런트엔드 회로 및 신호처리 물리 개요 (Introduction to Front-End Circuit & DSP Physics)](#2-프런트엔드-회로-및-신호처리-물리-개요-introduction-to-front-end-circuit--dsp-physics)
 3. [하이브리드 4계층 아키텍처 및 설정 객체(`RunInfo`/`FadcBD`) 직렬화 파이프라인](#3-하이브리드-4계층-아키텍처-및-설정-객체runinfofadcbd-직렬화-파이프라인)
 4. [색각 이상자 배려(Okabe–Ito Palette) 및 고시인성 UI/UX 설계 표준](#4-색각-이상자-배려okabeito-palette-및-고시인성-uiux-설계-표준)
@@ -29,9 +29,32 @@
 
 ---
 
-## 1. 시스템 개요 및 하드웨어 계측 규격 (Hardware & Metrology Specifications)
+## 1. 시스템 개요, 대상 하드웨어 버전(구형 미니 박스) 식별 및 계측 규격
 
 **`NKFADC500_mini_CLI`**는 Notice Korea의 **NKFADC500 Mini (4-Channel, 500 MS/s, 12-bit Fast/Flash ADC)** 디지타이저 보드를 제어하고, Cypress FX3 USB 3.0 SuperSpeed 버스트 스트리밍을 통해 원시 바이너리(`.dat`) 파형을 무손실 수집·감시한 뒤 **CERN ROOT 6** 표준 데이터 트리(`_prod.root`)로 고속 직렬화하는 통합 데이터 획득(DAQ) 프레임워크입니다.
+
+### 1.1 대상 하드웨어 리비전(구형 탁상형 미니 버전) 및 전면 포트 구성 식별 가이드
+
+Notice Korea의 `FADC500` / `NKFADC500` 디지타이저는 출시 시기와 폼팩터에 따라 **1-slot/2-slot NIM 모듈, 6U VME 모듈, 신형 다포트 리비전, 그리고 초기/이전 버전의 독립 탁상형 미니 박스(Legacy Desktop Mini Box)** 등 전면 패널 포트 배치가 서로 다릅니다. 본 저장소(`NKFADC500_mini_CLI`)는 아래 3D 모델링 및 전면 포트 도해에 제시된 **이전 버전(구형 독립 탁상형 미니 박스 리비전)**을 기준으로 설계·검증되었으므로, 운용 전 보유 장비의 전면 포트 구성을 반드시 대조하시기 바랍니다.
+
+<p align="center">
+  <img width="1380" alt="Notice NKFADC500 Mini Legacy Desktop Box 3D Model and Front-Panel Port Blueprint" src="./docs/images/nkfadc500_mini_hardware_version.png" />
+</p>
+
+- **전면 포트 구성을 통한 구형(Legacy Desktop Mini) 리비전 핵심 식별 포인트**:
+  1. **독립 탁상형 알루미늄 케이스 (`FADC500 / N O TICE` 각인)**: 별도의 NIM Bin이나 VME 크레이트 없이 탁상에서 단독 구동되는 헤어라인 알루미늄 미니 박스 형태입니다.
+  2. **하단 좌측 1열 4채널 동축 입력 포트 (`1`, `2`, `3`, `4`)**: $50\ \Omega$ DC 커플링 동축 포트 4개가 하단 좌측에 수평 1열로 배치되어 있습니다.
+  3. **전용 외부 트리거(`EXT TRIG`) 레모 포트 부재 및 `4 / CH4` 겸용 구조**: 신형이나 NIM/VME 리비전과 달리 전면에 별도로 분리된 `TRIG IN` 포트가 없으며, 4번 포트 아래에 **`CH4`**가 각인되어 **4번 아날로그 입력 또는 외부 트리거 입력(`TRIG_TLT = 0xFFFE` 등 16-bit LUT 설정)**으로 겸용됩니다.
+  4. **`TCP/IP` 실크스크린 각인 호스트 통신 포트**: `CH4` 우측에 `TCP/IP`로 각인된 데이터 통신 포트가 위치하며, Notice Korea 로우레벨 드라이버(`libusb3com` / `libNoticeNKFADC500`, `VID=0x0547, PID=0x1502`)를 통해 호스트 PC와 `128 KB` 고속 스트리밍 통신을 수행합니다.
+  5. **우측 상단 대형 사각 `ON/OFF` 푸시버튼**: 전면 우측 상단에 사각 푸시버튼형 주 전원 스위치가 배치되어 있습니다.
+
+아래 그림은 본 구형 `NKFADC500 Mini` 데스크탑 디지타이저를 암상자(Dark Box) 내부의 2인치 Hamamatsu H7195 PMT, ORTEC 556 고전압 전원공급장치(`-1700 V`), 및 DAQ 노트북(`NKFADC500_mini_CLI`)과 결합한 전체 검출기 계측 테스트벤치 3D 구성도입니다:
+
+<p align="center">
+  <img width="1280" alt="3D Integrated DAQ & Detector Testbench Setup with Notice NKFADC500 Mini" src="./docs/images/daq_testbench_3d_setup.png" />
+</p>
+
+### 1.2 하드웨어 정량 계측 규격 요약표 (Hardware & Metrology Specifications)
 
 | 계측 항목 (Parameter) | 수식 및 하드웨어 정량 규격 (Mathematical & Hardware Specification) | 물리적·공학적 비고 (Engineering Notes) |
 | :--- | :--- | :--- |
