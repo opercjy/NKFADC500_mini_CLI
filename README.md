@@ -15,12 +15,12 @@
 ## 목차 (Table of Contents)
 
 1. [시스템 개요 및 하드웨어 계측 규격 (Hardware & Metrology Specifications)](#1-시스템-개요-및-하드웨어-계측-규격-hardware--metrology-specifications)
-2. [박사급 프런트엔드 회로 설계 및 신호처리 물리 이론 (Front-End Circuit & DSP Physics)](#2-박사급-프런트엔드-회로-설계-및-신호처리-물리-이론-front-end-circuit--dsp-physics)
+2. [프런트엔드 회로 및 신호처리 물리 개요 (Introduction to Front-End Circuit & DSP Physics)](#2-프런트엔드-회로-및-신호처리-물리-개요-introduction-to-front-end-circuit--dsp-physics)
 3. [하이브리드 4계층 아키텍처 및 설정 객체(`RunInfo`/`FadcBD`) 직렬화 파이프라인](#3-하이브리드-4계층-아키텍처-및-설정-객체runinfofadcbd-직렬화-파이프라인)
 4. [색각 이상자 배려(Okabe–Ito Palette) 및 고시인성 UI/UX 설계 표준](#4-색각-이상자-배려okabeito-palette-및-고시인성-uiux-설계-표준)
 5. [디렉토리 구조 및 빌드·실행 가이드 (Build & Execution)](#5-디렉토리-구조-및-빌드실행-가이드-build--execution)
 6. [`PROD` ROOT 트리 스키마 및 내장 메타데이터 객체](#6-prod-root-트리-스키마-및-내장-메타데이터-객체)
-7. [고급 오프라인 물리 분석 매크로 (SPE, Compton Edge, PSD)](#7-고급-오프라인-물리-분석-매크로-spe-compton-edge-psd)
+7. [오프라인 물리 분석 매크로 (SPE, Compton Edge, PSD)](#7-오프라인-물리-분석-매크로-spe-compton-edge-psd)
 8. [정적/동적 코드 분석 및 4단계 E2E 무결성 검증 요약](#8-정적동적-코드-분석-및-4단계-e2e-무결성-검증-요약)
 9. [인공지능 활용 선언 (Declaration of AI Use — `Argon` Model)](#9-인공지능-활용-선언-declaration-of-ai-use-in-staticdynamic-verification)
 10. [감사의 글 (Acknowledgements)](#10-감사의-글-acknowledgements)
@@ -30,73 +30,87 @@
 
 ## 1. 시스템 개요 및 하드웨어 계측 규격 (Hardware & Metrology Specifications)
 
-**`NKFADC500_mini_CLI`**는 Notice Korea의 **NKFADC500 Mini (4-Channel, 500 MS/s, 12-bit Flash ADC)** 디지타이저 보드를 제어하고, Cypress FX3 USB 3.0 SuperSpeed 버스트 스트리밍을 통해 원시 바이너리(`.dat`) 파형을 무손실 수집·감시한 뒤 **CERN ROOT 6** 표준 데이터 트리(`_prod.root`)로 고속 직렬화하는 통합 데이터 획득(DAQ) 프레임워크입니다.
+**`NKFADC500_mini_CLI`**는 Notice Korea의 **NKFADC500 Mini (4-Channel, 500 MS/s, 12-bit Fast/Flash ADC)** 디지타이저 보드를 제어하고, Cypress FX3 USB 3.0 SuperSpeed 버스트 스트리밍을 통해 원시 바이너리(`.dat`) 파형을 무손실 수집·감시한 뒤 **CERN ROOT 6** 표준 데이터 트리(`_prod.root`)로 고속 직렬화하는 통합 데이터 획득(DAQ) 프레임워크입니다.
 
 | 계측 항목 (Parameter) | 수식 및 하드웨어 정량 규격 (Mathematical & Hardware Specification) | 물리적·공학적 비고 (Engineering Notes) |
 | :--- | :--- | :--- |
-| **입력 채널 및 종단 임피던스** | $N_{\text{ch}} = 4$, $R_{\text{term}} = 50.0\ \Omega$ DC 커플링 | 12-bit DAC 오프셋(`DACOFF` $\in [0, 4095]$) 독립 제어 |
+| **입력 채널 및 종단 임피던스** | $N_{\text{ch}} = 4$, $R_{\text{term}} = 50.0\ \Omega$ DC 커플링 | 12-bit DAC 오프셋(`DACOFF` $\in [0, 4095]$) 채널별 독립 제어 |
 | **샘플링 주파수 및 시간 간격** | $f_s = \dfrac{500\text{ MS/s}}{\text{DSR}}$, $\Delta t_{\text{samp}} = \dfrac{1}{f_s} = 2.0\text{ ns}\times\text{DSR}$ | 분주비 $\text{DSR} \in \{1, 2, 4, 8\}$ (기본값 $\text{DSR}=1 \implies 2.0\text{ ns}$) |
-| **나이퀴스트 주파수 및 대역폭** | $f_{\text{Nyq}} = \dfrac{f_s}{2} = 250\text{ MHz}$, 아날로그 안티에일리어싱 $f_{-3\text{dB}} \approx 200\text{ MHz}$ | 계단 응답 상승 시간 $t_{10\text{--}90\%} \approx \dfrac{0.35}{f_{-3\text{dB}}} \approx 1.75\text{ ns}$ |
-| **수직 양자화 해상도 ($\Delta V_{\text{LSB}}$)** | $12\text{-bit}$ ($N_{\text{ADC}} = 2^{12} = 4096$), $V_{\text{pp}} = 2.5\text{ V}_{\text{pp}} \implies \Delta V_{\text{LSB}} = \dfrac{2500\text{ mV}}{4096} = \mathbf{0.6103515625\text{ mV/ADC}}$ | 이상적 양자화 잡음 $\sigma_q = \dfrac{\Delta V_{\text{LSB}}}{\sqrt{12}} \approx 0.176\text{ mV}$ ($0.289\text{ ADC}$) |
-| **단위 전하 환산 계수 ($q_{\text{LSB}}$)** | $q_{\text{LSB}} = \dfrac{\Delta V_{\text{LSB}}\,\Delta t_{\text{samp}}}{R_{\text{term}}} = \dfrac{0.6103515625\text{ mV}\times 2.0\text{ ns}}{50.0\ \Omega} = \mathbf{24.4140625\text{ fC/(ADC}\cdot\text{sample)}}$ | $\mathbf{0.0244140625\text{ pC/(ADC}\cdot\text{sample)}}$ ($\text{DSR}=1$ 기준) |
-| **레코드 길이 (`RL`) 및 샘플 수** | $\text{RL} \in \{1, 2, 4, 8, 16, 32, 64, 128, 256\}$, 패킷 크기 $B_{\text{evt}} = \text{RL}\times 512\text{ Bytes}$ | 헤더 $128\text{ B}$ 제외 시 채널당 샘플 수 $N_s = 128\times\text{RL} - 16$ ($\text{RL}=4 \implies N_s=496$, $992\text{ ns}$) |
-| **FPGA 클럭 및 타임스탬프** | Fine Counter $1\text{ ns}$ + Coarse Counter $8\text{ ns}$ ($125\text{ MHz}$ 시스템 클럭) | 48-bit Local Time ($\approx 78.1\text{ hr}$ 주기) + 64-bit TCB Time |
+| **나이퀴스트 주파수 및 입력 모드** | $f_{\text{Nyq}} = \dfrac{f_s}{2} = \dfrac{250\text{ MHz}}{\text{DSR}}$, `AMODE` $\in \{0\text{ (Raw)}, 1\text{ (Filtered)}\}$ | 아날로그/디지털 성형 모드(`NKFADC500write_AMODE`) 선택 지원 |
+| **수직 양자화 해상도 ($\Delta V_{\text{LSB}}$)** | $12\text{-bit}$ ($N_{\text{ADC}} = 2^{12} = 4096$), $V_{\text{pp}} = 2.5\text{ V}_{\text{pp}} \implies \Delta V_{\text{LSB}} = \dfrac{2500\text{ mV}}{4096} = \mathbf{0.6103515625\text{ mV/ADC}}$ | 이상적 균일 양자화 잡음 $\sigma_q = \dfrac{\Delta V_{\text{LSB}}}{\sqrt{12}} \approx 0.176\text{ mV}$ ($0.289\text{ ADC}$) |
+| **단위 전하 환산 계수 ($q_{\text{LSB}}$)** | $q_{\text{LSB}} = \dfrac{\Delta V_{\text{LSB}}\,\Delta t_{\text{samp}}}{R_{\text{term}}} = \dfrac{0.6103515625\text{ mV}\times 2.0\text{ ns}}{50.0\ \Omega} = \mathbf{24.4140625\text{ fC/(ADC}\cdot\text{sample)}}$ | $\mathbf{0.0244140625\text{ pC/(ADC}\cdot\text{sample)}}$ ($\text{DSR}=1$ 기준; 일반 $\text{DSR}$에 비례) |
+| **레코드 길이 (`RL`) 및 샘플 수 ($N_s$)** | $\text{RL} \in \{1, 2, 4, 8, 16, 32, 64, 128, 256\}$, 채널당 패킷 길이 $L_{\text{ch}} = 128\times\text{RL}\text{ B}$ ($4\text{ch}$ 합계 $B_{\text{evt}} = 512\times\text{RL}\text{ B}$) | 채널당 헤더 $32\text{ B}$ ($4\text{ch}$ $128\text{ B}$) 제외 및 $2\text{ B/sample}$ 적용 시 $N_s = \dfrac{128\times\text{RL}-32}{2} = \mathbf{64\times\text{RL} - 16}$ ($\text{RL}=1 \implies 48\text{ pts}$, $\text{RL}=8 \implies 496\text{ pts}$) |
+| **FPGA 클럭 및 타임스탬프** | $125\text{ MHz}$ 시스템 클럭 기반 Fine Counter ($8\text{ ns}$ 단위, $0\dots 124$) + Coarse Counter ($1\ \mu\text{s} = 1000\text{ ns}$ 단위) | $t = 8\text{ ns}\cdot N_{\text{fine}} + 1000\text{ ns}\cdot N_{\text{coarse}}$ (TCB: 24-bit Coarse $\approx 16.78\text{ s}$ 롤오버 언래핑; Local: 48-bit Coarse $\approx 8.9\text{ yr}$) |
 | **온보드 메모리 및 버스 정렬** | $64\text{ MB}$ DDR SDRAM ($\text{BCOUNT} \in [0, 65536]\text{ KB}$) / USB 3.0 FX3 Slave FIFO | `128 KB` 스트리밍 슬라이스 / `16 KB` FX3 버스트 경계 정렬 |
 
 ---
 
-## 2. 박사급 프런트엔드 회로 설계 및 신호처리 물리 이론 (Front-End Circuit & DSP Physics)
+## 2. 프런트엔드 회로 및 신호처리 물리 개요 (Introduction to Front-End Circuit & DSP Physics)
 
-고에너지·핵물리 실험에서 광전자증배관(PMT, 예: Hamamatsu H7195)이나 실리콘 광증배관(SiPM)을 고속 FADC에 결합할 때, 아날로그 프런트엔드 회로 설계와 디지털 신호처리(DSP)의 수학적 관계를 정확히 이해해야 파형 왜곡(Ringing), 반사(Reflection), 및 전하 적분 오차를 방지할 수 있습니다.
+광전자증배관(PMT)이나 실리콘 광증배관(SiPM)을 고속 FADC에 결합할 때, 검출기 양극(Anode) 등가 회로와 동축 전송선 정합, 그리고 이산 신호처리(DSP)의 기본 관계를 파악하면 파형 반사(Ringing)와 전하 적분 편향을 예방할 수 있습니다.
 
-### 2.1 PMT 양극 등가 회로, $50\ \Omega$ 전송선 정합, 및 전하 보존 정리
+### 2.1 PMT 양극 노턴 등가 회로, $50\ \Omega$ 전송선 정합 및 전하 분배 관계
 
-증배 이득이 $G_{\text{eff}}$인 PMT에 $N_{\text{pe}}$개의 1차 광전자가 도달하면, 양극(Anode)은 총 전하 $Q_{\text{anode}} = N_{\text{pe}}\,e\,G_{\text{eff}}$ ($e = 1.602176634\times 10^{-19}\text{ C}$)를 방출하는 고임피던스 전류원 $i_{\text{anode}}(t)$로 동작합니다. 양극 기생 정전용량 $C_{\text{anode}}$ ($\approx 5\text{ pF}$), 블리더 누설 저항 $R_{\text{leak}}$ ($\approx 100\text{ k}\Omega$), 직렬 댐핑 저항 $R_{\text{damp}}$ ($\approx 50\text{--}51\ \Omega$), 특성 임피던스 $Z_0 = \sqrt{L'/C'} = 50.0\ \Omega$ 동축 케이블(예: `RG-58C/U`, 단위길이 지연 $T_D = \ell/v_p \approx 5.0\text{ ns/m}$), 그리고 NKFADC500-4의 입력 종단 저항 $R_{\text{term}} = 50.0\ \Omega$로 구성된 결합 회로에서 부하 반사 계수 $\Gamma_L$ 및 송신단 반사 계수 $\Gamma_S$는 다음과 같습니다:
+유효 증배 이득이 $G_{\text{eff}}$인 PMT에 $N_{\text{pe}}$개의 광전자가 입사하면, 양극(Anode)은 총 전하 $Q_{\text{anode}} = N_{\text{pe}}\,e\,G_{\text{eff}}$ ($e = 1.602176634\times 10^{-19}\text{ C}$)를 공급하는 전류원 $i_{\text{anode}}(t)$와 양극 부하 저항 $R_a$ (통상 $10\text{--}100\text{ k}\Omega$), 양극 기생 정전용량 $C_a$ (통상 $3\text{--}10\text{ pF}$)의 병렬 노턴(Norton) 등가 회로로 모델링됩니다. 이 신호를 특성 임피던스 $Z_0 = \sqrt{L'/C'} = 50.0\ \Omega$ 동축 케이블을 통해 NKFADC500-4의 입력 종단 저항 $R_{\text{term}} = 50.0\ \Omega$에 연결할 때, 수신단(FADC)과 송신단(PMT 베이스)의 전압 반사 계수는 다음과 같습니다:
 
 $$\Gamma_L = \frac{R_{\text{term}} - Z_0}{R_{\text{term}} + Z_0} = 0, \qquad \Gamma_S(\omega) = \frac{Z_{\text{source}}(\omega) - Z_0}{Z_{\text{source}}(\omega) + Z_0}$$
 
-여기서 $R_{\text{damp}} \approx Z_0 = 50\ \Omega$를 양극 출력단에 직렬 배치하면(Back-termination), 고주파 영역에서도 $\Gamma_S \to 0$이 되어 동축 케이블 양단의 다중 반사(Multiple Reflections / Baseline Ringing)가 완전히 억제됩니다. 직렬 댐핑 저항 $R_{\text{damp}}$는 양극 RC 시정수 $\tau_{\text{anode}} = (R_{\text{damp}} + R_{\text{term}})\,C_{\text{anode}} \approx 0.5\text{ ns}$에 의해 피크 전압 진폭을 약 절반으로 낮추고 펄스 폭을 약간 넓히지만, $R_{\text{leak}} \gg R_{\text{damp}} + R_{\text{term}}$이므로 **FADC 종단 저항 $R_{\text{term}}$에 전달되는 총 적분 전하량 $Q_{\text{FADC}}$는 파형 감쇠나 케이블 분산과 무관하게 보존**됩니다:
+수신단에서 $R_{\text{term}} = Z_0 = 50.0\ \Omega$ 정합이 이루어지므로 1차 입사파는 반사 없이 흡수됩니다($\Gamma_L = 0$). 이때 송신단(PMT 베이스 출력단)의 저항 구성에 따라 전하 전달 효율 $\eta_{\text{term}} = Q_{\text{FADC}} / Q_{\text{anode}}$과 파형 감쇠 특성이 두 가지 모드로 구분됩니다:
 
-$$Q_{\text{FADC}} = \int_{0}^{T_{\text{gate}}} \frac{V_{\text{FADC}}(t)}{R_{\text{term}}}\,dt = Q_{\text{anode}}\left(\frac{R_{\text{leak}}}{R_{\text{leak}} + R_{\text{damp}} + R_{\text{term}}}\right) \approx \frac{100\text{ k}\Omega}{100.101\text{ k}\Omega}\,Q_{\text{anode}} = 0.999\,N_{\text{pe}}\,e\,G_{\text{eff}}$$
+1. **직접 $50\ \Omega$ 수신단 종단 + 직렬 기생진동 감쇠 저항 ($R_{\text{damp}} \sim 10\text{--}51\ \Omega$ 직렬 배치)**:
+   - 양극과 동축 코어 사이에 소형 직렬 저항 $R_{\text{damp}}$만 배치하고 별도의 $50\ \Omega$ 병렬(Shunt) 종단 저항을 두지 않는 구성입니다. 저주파·중주파 영역($\omega C_a (R_{\text{damp}} + Z_0) \ll 1$)에서 송신단 임피던스는 $Z_{\text{source}}(0) = R_a + R_{\text{damp}} \gg Z_0$이므로 광대역 역종단($\Gamma_S = 0$) 조건은 아니지만, $\Gamma_L = 0$이므로 주 반사가 발생하지 않으며 $R_{\text{damp}}$가 리드 인덕턴스 $L_{\text{lead}}$와 $C_a$ 사이의 고주파 기생 $LC$ 링잉을 감쇠시킵니다.
+   - 특히 $R_a \gg R_{\text{damp}} + R_{\text{term}}$이므로, $R_{\text{damp}}$에 의해 피크 진폭이 낮아지고 상승/하강 시정수 $\tau_a = (R_{\text{damp}} + R_{\text{term}})\,C_a$만큼 펄스 폭이 넓어지더라도 **FADC 입력 저항 $R_{\text{term}}$을 통과하는 총 적분 전하량은 거의 $100\%$ 보존**됩니다:
 
-따라서 이득 $G_{\text{eff}} = 3.25\times 10^6$ 기준 단일 광전자(SPE, $1\text{ PE}$)의 총 전하는 다음과 같이 ADC 적분 단위로 직결됩니다:
+$$Q_{\text{FADC}} = \int_{0}^{T_{\text{gate}}} \frac{V_{\text{FADC}}(t)}{R_{\text{term}}}\,dt = Q_{\text{anode}}\left(\frac{R_a}{R_a + R_{\text{damp}} + R_{\text{term}}}\right) \approx Q_{\text{anode}} \quad \left(\eta_{\text{term}} \approx 0.999\text{ for } R_a = 100\text{ k}\Omega\right)$$
 
-$$Q_{1\text{pe}} = e\,G_{\text{eff}} \approx 0.5207\text{ pC} \implies \frac{Q_{1\text{pe}}}{q_{\text{LSB}}} = \frac{520.7\text{ fC}}{24.414\text{ fC/(ADC}\cdot\text{sample)}} \approx 21.33\text{ ADC}\cdot\text{sample}$$
+2. **송신단 병렬 역종단 (Shunt Back-Termination, $R_{\text{back}} = 50.0\ \Omega$ 병렬 배치)**:
+   - 커넥터 불연속이나 FADC 입력단 반응성 성분($Z_{\text{in}}(\omega) \ne Z_0$)에 의한 미세 2차 반사파까지 송신단에서 완전 흡수($\Gamma_S \approx 0$)하기 위해 양극과 접지 사이에 $R_{\text{back}} = 50.0\ \Omega$을 병렬 배치하는 구성입니다. 이 경우 전류가 $R_{\text{back}}$과 전송선($Z_0 = R_{\text{term}} = 50.0\ \Omega$)으로 $1:1$ 분배되므로 FADC 수집 전하는 절반이 됩니다:
 
-### 2.2 안티에일리어싱 필터, 정류 적분(Rectified Integration) 바이어스, 및 페데스탈 분산
+$$Q_{\text{FADC}}^{\text{(shunt)}} = Q_{\text{anode}}\left(\frac{R_{\text{back}}}{R_{\text{back}} + R_{\text{term}}}\right) = \frac{1}{2}\,Q_{\text{anode}} \quad \left(\eta_{\text{term}} = 0.5\right)$$
 
-NKFADC500-4 입력단의 저역통과 안티에일리어싱 필터($R_{\text{aa}} \approx 10\ \Omega$, $C_{\text{aa}} \approx 15.9\text{ pF}$, $f_{-3\text{dB}} \approx 200\text{ MHz}$)와 PMT 전이시간 퍼짐($\text{TTS} \approx 1.1\text{ ns}$ FWHM)의 합성 임펄스 응답 $h_{\text{IRF}}(t)$는 단일 광전자 파형의 반치폭을 $\text{FWHM}_{1\text{pe}} \approx 6.2\text{--}6.4\text{ ns}$ ($\Delta t_{\text{samp}} = 2.0\text{ ns}$ 샘플링 격자에서 $\ge 3$ 샘플 이상)로 성형하여 언더샘플링(Undersampling) 진폭 손실을 방지합니다.
+일반적인 전하 전달 계수 $\eta_{\text{term}}$에 대해, 단일 광전자(SPE, $1\text{ PE}$) 평균 적분 전하 $Q_{1\text{pe}}$와 ADC 적분 면적($\text{ADC}\cdot\text{sample}$)의 환산식은 다음과 같습니다(예시: 직접 종단 $\eta_{\text{term}} \approx 1$, $G_{\text{eff}} = 3.25\times 10^6$, $\text{DSR}=1$ 기준):
 
-파형 배열 $V_k$ ($k = 0, \dots, N_s - 1$)에서 트리거 이전(Pre-trigger) 무신호 구간 $N_{\text{ped}}$ 샘플의 평균으로 사건별 베이스라인 $\hat{B}$와 RMS 잡음 $\sigma_{\text{base}}$를 추정합니다:
+$$Q_{1\text{pe}} = \eta_{\text{term}}\,e\,G_{\text{eff}}, \qquad N_{\text{ADC}\cdot\text{samp}}(1\text{ PE}) = \frac{Q_{1\text{pe}}}{q_{\text{LSB}}} \quad \left(\text{예: } Q_{1\text{pe}} \approx 0.521\text{ pC} \implies \frac{520.7\text{ fC}}{24.414\text{ fC/(ADC}\cdot\text{sample)}} \approx 21.33\text{ ADC}\cdot\text{sample}\right)$$
 
-$$\hat{B} = \frac{1}{N_{\text{ped}}}\sum_{k=0}^{N_{\text{ped}}-1} V_k, \qquad \sigma_{\text{base}} = \sqrt{\frac{1}{N_{\text{ped}}-1}\sum_{k=0}^{N_{\text{ped}}-1}\left(V_k - \hat{B}\right)^2}$$
+### 2.2 이산 표본화, 베이스라인 추정 및 정류 적분(Rectified Integration) 잡음 편향
 
-이때 베이스라인 차감 파형 $w_k = (\hat{B} - V_k)\cdot(-1)^{\text{POL}}$에 대해 음수 잡음 클리핑을 포함한 **정류 전하 적분(Rectified Charge Integration)** $Q_{\text{raw}} = \sum_{k=0}^{N_s-1}\max(0, w_k)$을 수행하면, 가우시안 백색 잡음 $w_k \sim \mathcal{N}(0, \sigma_{\text{base}}^2)$의 반파 정류 기댓값 $\mathbb{E}[\max(0, w_k)] = \sigma_{\text{base}}/\sqrt{2\pi}$가 전체 창 길이 $N_s$에 걸쳐 누적되어 양(+)의 페데스탈 적분 오프셋 $Q_{\text{ped}}$를 형성합니다:
+고속 PMT 단일 광전자 펄스(전형적 상승 시간 $t_r \sim 1.5\text{--}3\text{ ns}$, 반치폭 $\text{FWHM} \sim 4\text{--}8\text{ ns}$)를 $\Delta t_{\text{samp}} = 2.0\text{ ns}\times\text{DSR}$ 간격으로 이산 표본화할 때, 언더샘플링(Undersampling)에 의한 피크 진폭 손실과 에일리어싱을 막기 위해 아날로그/디지털 성형 대역폭(`AMODE`)과 샘플링 분주비($\text{DSR}=1 \implies 500\text{ MS/s}$)가 펄스 주 로브(Main lobe) 안에 최소 $3$개 이상의 샘플을 확보하도록 설정합니다.
 
-$$\langle Q_{\text{ped}}\rangle_{\text{rect}} = \frac{N_s\,\sigma_{\text{base}}}{\sqrt{2\pi}} \quad \left(\text{예: } N_s = 496,\ \sigma_{\text{base}} \approx 1.19\text{ ADC} \implies Q_{\text{ped}} \approx 235\text{ ADC}\cdot\text{sample} \approx 5.74\text{ pC}\right)$$
+[`production_main.cpp`](./app/production_main.cpp)는 이벤트별 파형 배열 $V_k$ ($k = 0, \dots, N_s - 1$)에서 트리거 지연(`DLY`) 이전의 무신호 프리트리거 구간 $N_{\text{ped}}$ 샘플을 사용하여 사건별 베이스라인 $\hat{B}$와 RMS 잡음 $\sigma_{\text{base}}$를 계산합니다([`NoticeFadc500Spec::ComputeBaselineSamples`](./core/include/NoticeFadc500Spec.hh)):
 
-반면, 고정된 신호 게이트 $[k_1, k_2]$에서 클리핑 없이 부호 있는 선형 합산 $Q_{\text{lin}} = \sum_{k=k_1}^{k_2} w_k$를 사용할 경우 기댓값 편향은 $0$이며, 전하 분산은 샘플 자체 잡음과 베이스라인 추정 오차의 합으로 주어집니다:
+$$\hat{B} = \frac{1}{N_{\text{ped}}}\sum_{k=0}^{N_{\text{ped}}-1} V_k, \qquad \sigma_{\text{base}} = \sqrt{\frac{1}{N_{\text{ped}}}\sum_{k=0}^{N_{\text{ped}}-1}\left(V_k - \hat{B}\right)^2}$$
 
-$$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + \frac{N_{\text{gate}}}{N_{\text{ped}}}\right), \qquad N_{\text{gate}} = k_2 - k_1 + 1$$
+극성 보정 및 베이스라인 차감 파형 $w_k = (\hat{B} - V_k)\cdot(-1)^{1-\text{POL}}$ ($\text{POL}=0$: 음극성 펄스 반전, $\text{POL}=1$: 양극성 펄스 유지)에 대해, 본 프레임워크는 분석 목적에 따라 두 가지 적분량을 구분합니다:
 
-### 2.3 FPGA 디지털 트리거 상태 머신, 5-Bit Coarse Delay 한계, 및 SDRAM 트레이닝
+1. **전체 창 정류 적분 (`Charge_Ch{i}`)의 양(+)의 잡음 편향**:
+   - 음수 오버슈트나 베이스라인 요동을 배제하기 위해 반파 정류 클램핑 $Q_{\text{rect}} = \sum_{k=0}^{N_s-1}\max(0, w_k)$을 적용하면, 무신호 가우시안 잡음 $w_k \sim \mathcal{N}(0, \sigma_{\text{base}}^2)$의 반파 정류 기댓값 $\mathbb{E}[\max(0, w_k)] = \sigma_{\text{base}}/\sqrt{2\pi}$가 전체 샘플 수 $N_s$에 걸쳐 누적되어 양(+)의 페데스탈 오프셋을 형성합니다:
 
-1. **4종 디지털 트리거 모드 (`TMODE`)**:
-   - **Pulse Height (`Bit 0`, $\text{TMODE}=1$)**: 순시 진폭 $w_k \ge \text{THR}$ ($\text{THR} \in [1, 4095]\text{ ADC}$).
-   - **Pulse Width (`Bit 1`, $\text{TMODE}=2$)**: $w_k \ge \text{THR}$ 상태가 연속으로 $\text{PWT}$ ($\in [2, 1022]\text{ ns}$) 이상 유지될 때 트리거 발생.
-   - **Peak Sum (`Bit 2`, $\text{TMODE}=4$)**: 이동 합산 창 $\text{PSW}$ ($\in [2, 1022]\text{ ns}$) 동안의 면적 합 $\sum_{m=0}^{\text{PSW}/\Delta t - 1} w_{k-m} \ge \text{THR}_{\text{sum}}$ ($\text{THR}_{\text{sum}} \in [1, 67{,}108{,}863]$, 26-bit).
-   - **Peak Sum OR Pulse Width (`Bit 3`, $\text{TMODE}=8$)**: 두 조건의 논리합.
+$$\mathbb{E}\!\left[Q_{\text{ped}}^{\text{(rect)}}\right] = \frac{N_s\,\sigma_{\text{base}}}{\sqrt{2\pi}} \quad \left(\text{예: } N_s = 496,\ \sigma_{\text{base}} \approx 1.19\text{ ADC} \implies \mathbb{E}[Q_{\text{ped}}^{\text{(rect)}}] \approx 235\text{ ADC}\cdot\text{sample} \approx 5.74\text{ pC}\right)$$
+
+   - 따라서 [`offline_spe.cpp`](./offline_spe.cpp)와 같은 저전하 교정에서는 반드시 페데스탈 피크 중심 $Q_0$를 함께 피팅하여 차감($Q_{1\text{pe}} = \mu_1 - Q_0$)하거나, 피크 주변 국소 게이트(`Qtotal_Ch{i}`, $[-10, +120]\text{ ns}$)를 사용해야 합니다.
+2. **비클리핑 선형 게이트 적분 ($Q_{\text{lin}} = \sum_{k=k_1}^{k_2} w_k$)의 무편향 분산**:
+   - 클리핑 없이 길이 $N_{\text{gate}} = k_2 - k_1 + 1$ 구간을 선형 합산하면 평균 잡음 편향은 $\mathbb{E}[Q_{\text{ped}}^{\text{(lin)}}] = 0$이며, 적분 전하 분산은 게이트 내부 샘플 잡음과 프리트리거 베이스라인 추정 오차($\text{Var}(\hat{B}) = \sigma_{\text{base}}^2 / N_{\text{ped}}$)의 공분산 합으로 주어집니다:
+
+$$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + \frac{N_{\text{gate}}}{N_{\text{ped}}}\right)$$
+
+### 2.3 FPGA 디지털 트리거 상태 머신, 5-Bit Coarse Delay 한계 및 SDRAM 트레이닝
+
+1. **4종 디지털 트리거 모드 (`TMODE` $\in [1, 15]$ 비트마스크, [`nkfadc500_4_test.C:36-44`](./notice_nkfadc500_4/notice/test/mini_nkfadc500/nkfadc500_4_test.C))**:
+   - **Pulse Count / Height (`Bit 0`, `ten`, $\text{TMODE}=1$)**: 판별 시간 창 $\text{PCI} \in [32, 8160]\text{ ns}$ 동안 $w_k \ge \text{THR}$ ($\text{THR} \in [1, 4095]\text{ ADC}$) 조건을 만족하는 펄스 개수가 $\text{PCT} \in [1, 15]$개 이상일 때 트리거 발생($\text{PCT}=1$일 때 단일 펄스 진폭 트리거로 동작).
+   - **Pulse Width (`Bit 1`, `tew`, $\text{TMODE}=2$)**: $w_k \ge \text{THR}$ 상태가 연속으로 $\text{PWT} \in [2, 1022]\text{ ns}$ 이상 유지될 때 트리거 발생.
+   - **Peak Sum (`Bit 2`, `tep`, $\text{TMODE}=4$)**: 이동 합산 창 $\text{PSW} \in [2, 16{,}382]\text{ ns}$ 동안의 파형 면적 합이 26-bit 임계값 $\text{THR}_{\text{sum}} \in [1, 67{,}108{,}863]$ 이상일 때 트리거 발생.
+   - **Peak Sum OR (`Bit 3`, `tep2`, $\text{TMODE}=8$)**: Peak Sum 조건의 OR 결합 트리거.
 2. **16-Bit Trigger Lookup Table (`TLT`) 진리표 인코딩**:
    - 4채널 입력 조합 $(C_3, C_2, C_1, C_0) \in \{0, 1\}^4$의 16가지 상태에 대한 불리언 함수 $F(C_3,C_2,C_1,C_0) = \text{Bit}_{(8C_3 + 4C_2 + 2C_1 + C_0)}(\text{TLT})$로 정의됩니다:
      $$\text{TLT} = \texttt{0xFFFE} \implies C_0 \lor C_1 \lor C_2 \lor C_3\ (\text{Any-Channel Inclusive OR}), \qquad \text{TLT} = \texttt{0x8000} \implies C_0 \land C_1 \land C_2 \land C_3\ (\text{4-Fold Coincidence})$$
 3. **5-Bit Coarse Delay 레지스터 오버플로 경계 조건**:
-   - 벤더 드라이버(`NoticeNKFADC500.c:179`)는 총 지연 시간 $D_{\text{tot}} = \text{CW} + \text{DLY}$ [$\text{ns}$]를 FPGA 레지스터 `0x20000007`에 기록할 때 다음과 같이 상위 비트와 하위 비트로 분할합니다:
+   - 벤더 드라이버([`NoticeNKFADC500.c:179`](./notice_nkfadc500_4/notice/src/nkfadc500/nkfadc500/NoticeNKFADC500.c))는 총 지연 시간 $D_{\text{tot}} = \text{CW} + \text{DLY}$ [$\text{ns}$]를 FPGA 레지스터 `0x20000007`에 기록할 때 다음과 같이 상위 비트와 하위 비트로 분할합니다:
      $$\text{REG}_{\text{DLY}} = \left(\left\lfloor\frac{\text{CW} + \text{DLY}}{1000}\right\rfloor \ll 10\right) \,\Big|\, \left((\text{CW} + \text{DLY}) \bmod 1000\right)$$
    - 이때 상위 Coarse 카운터가 **5-bit** ($0\dots 31 \implies \le 31{,}000\text{ ns}$)이고 하위 Fine 카운터가 $8\text{ ns}$ 클럭 단위 최대 $992\text{ ns}$이므로, 하드웨어 절대 상한은 다음과 같습니다:
      $$\text{CW} + \text{DLY} \le 31{,}992\text{ ns}$$
    - 본 프레임워크의 [`NoticeFadc500Spec.hh`](./core/include/NoticeFadc500Spec.hh)는 설정 파싱 및 하드웨어 초기화 시 $\text{CW} + \text{DLY} > 31{,}992\text{ ns}$ 오버플로로 인한 지연 시간 래핑(Wrapping)을 사전 차단합니다.
 4. **SDRAM 8-Lane LVDS 트레이닝 패턴 (`0xFFAA5500`) 및 Bit-Slip 정렬**:
-   - [`Fadc500Device::SafeAlignDRAM()`](./core/src/Fadc500Device.cpp)은 온보드 64 MB SDRAM의 8개 바이트 레인에 교번 비트 시계열(Training Pattern) `0xFFAA5500` (`11111111_10101010_01010101_00000000`)을 기록한 뒤, IDELAY 탭($0\dots 31$) 스캔으로 아이 다이어그램(Eye Diagram) 중앙 위상을 찾고 `BITSLIP` ($0\dots 3$)을 조정하여 워드 경계를 $100\%$ 동기화합니다.
+   - [`Fadc500Device::SafeAlignDRAM()`](./core/src/Fadc500Device.cpp)은 온보드 64 MB SDRAM의 8개 바이트 레인에 교번 비트 시계열(Training Pattern) `0xFFAA5500` (`11111111_10101010_01010101_00000000`)을 기록한 뒤, IDELAY 탭($0\dots 31$) 스캔으로 아이 다이어그램(Eye Diagram) 유효 윈도우 중앙 위상을 찾고 `BITSLIP` ($0\dots 3$)을 조정하여 워드 경계를 동기화합니다.
 
 ---
 
@@ -208,7 +222,7 @@ cd ..
 | `PROD` 트리 브랜치 | ROOT 타입 | 수식 및 물리적 정의 (Mathematical Definition & Unit) |
 | :--- | :---: | :--- |
 | `EventID` / `TriggerNumber` | `UInt_t` | 순차 이벤트 인덱스 / FPGA 하드웨어 트리거 번호 |
-| `TriggerTime` / `LocalTriggerTime` | `ULong64_t` | 64-bit TCB 시각 / 48-bit 보드 로컬 시각 $t_{\text{trig}} = t_{\text{fine}} + 1000\,t_{\text{coarse}}$ [$\text{ns}$] |
+| `TriggerTime` / `LocalTriggerTime` | `ULong64_t` | 64-bit TCB 시각 / 48-bit 보드 로컬 시각 $t_{\text{trig}} = 8\,N_{\text{fine}} + 1000\,N_{\text{coarse}}$ [$\text{ns}$] |
 | `TriggerPattern` / `TriggerType` | `UInt_t` | 4채널 트리거 발생 비트마스크 (`Bit 0..3`) 및 트리거 유형 |
 | `ModuleID` / `RunNumber` | `UInt_t` / `Int_t` | 보드 MID 및 런 번호 |
 | `RecordLength` / `SamplingNs` | `Int_t` / `Double_t` | 이벤트당 샘플 수 $N_s$ 및 샘플링 간격 $\Delta t_{\text{samp}}$ [$\text{ns}$] |
@@ -230,15 +244,16 @@ printf("Ch0 THR = %d ADC, DLY = %d ns, HW PED = %d ADC\n", bd->GetTHR(0), bd->Ge
 
 ---
 
-## 7. 고급 오프라인 물리 분석 매크로 (SPE, Compton Edge, PSD)
+## 7. 오프라인 물리 분석 매크로 (SPE, Compton Edge, PSD)
 
 1. **단일 광전자(SPE) 절대 이득 교정 ([`offline_spe.cpp`](./offline_spe.cpp))**:
-   - 저광량 포아송 광원 환경에서 수집된 전하 스펙트럼을 페데스탈($n=0$)과 $n$-광전자 가우시안 합성 모델(Bellamy *et al.*, *NIM-A* **343**, 484 (1994))로 `MINUIT2` 피팅하여 절대 증배 이득 $G_{\text{eff}} = Q_{1\text{pe}} / e$를 도출합니다:
-     $$f_{\text{SPE}}(Q) = \frac{A_0}{\sqrt{2\pi}\sigma_0}\exp\!\left[-\frac{(Q - Q_0)^2}{2\sigma_0^2}\right] + \sum_{n=1}^{2}\frac{A_n}{\sqrt{2\pi n}\,\sigma_1}\exp\!\left[-\frac{(Q - Q_0 - n Q_{1\text{pe}})^2}{2n\sigma_1^2}\right]$$
+   - 저광량 포아송 광원 환경에서 수집된 전하 스펙트럼을 페데스탈($n=0$)과 $n$-광전자 가우시안 합성 모델(Bellamy *et al.*, *NIM-A* **343**, 484 (1994) 기반 다중 광전자 응답; `TMath::Gaus` 피크 진폭 매개변수화 $A_n$, $\mu_2 = Q_0 + 2 Q_{1\text{pe}}$, $\sigma_2 = \sqrt{2}\sigma_1$)로 `MINUIT2` 피팅하여 단일 광전자 전하 $Q_{1\text{pe}} = \mu_1 - Q_0$ 및 유효 증배 이득 $G_{\text{eff}} = Q_{1\text{pe}} / (\eta_{\text{term}}\,e)$를 도출합니다:
+     $$f_{\text{SPE}}(Q) = A_0\exp\!\left[-\frac{(Q - Q_0)^2}{2\sigma_0^2}\right] + \sum_{n=1}^{2} A_n\exp\!\left[-\frac{(Q - Q_0 - n Q_{1\text{pe}})^2}{2n\sigma_1^2}\right]$$
 2. **감마선 컴프턴 엣지(Compton Edge) 정밀 피팅 ([`offline_compton_edge.cpp`](./offline_compton_edge.cpp))**:
    - 저-$Z$ 액체섬광체에서 입사 감마선 에너지 $E_\gamma$에 대한 클라인–니시나(Klein–Nishina) 최대 반도 전자 에너지(Compton Edge, $\theta = \pi$ 후방산란)는 다음과 같습니다:
      $$E_{\text{CE}}(E_\gamma) = \frac{E_\gamma}{1 + \dfrac{m_e c^2}{2 E_\gamma}} \quad \left(^{137}\text{Cs } 661.7\text{ keV} \implies 477.3\text{ keV};\ ^{60}\text{Co } 1173.2, 1332.5\text{ keV} \implies 963.4, 1118.1\text{ keV}\right)$$
-   - 검출기 에너지 분해능 가우시안과 합성곱된 연속체 끝단을 상보 오차함수($\text{erfc}$) 모델로 피팅하여 컴프턴 엣지 전하 $Q_{\text{CE}}$ [$\text{pC}$]와 상대 분해능 $\sigma_E / E_{\text{CE}}$를 추출합니다.
+   - 검출기 에너지 분해능 가우시안($\sigma_{\text{CE}}$)과 합성곱된 연속체 끝단을 상보 오차함수($\text{erfc}$) 모델로 피팅하여 컴프턴 엣지 전하 $Q_{\text{CE}}$ [$\text{pC}$]와 상대 분해능 $\sigma_{\text{CE}} / Q_{\text{CE}}$를 추출합니다:
+     $$f_{\text{CE}}(Q) = A\,\text{erfc}\!\left(\frac{Q - Q_{\text{CE}}}{\sqrt{2}\,\sigma_{\text{CE}}}\right) + B$$
 3. **종합 진단 및 $\Delta t$ 애프터펄스 필터링 ([`offline_anal_500.cpp`](./offline_anal_500.cpp), [`offline_anal_edu.cpp`](./offline_anal_edu.cpp))**:
    - 2D 파형 잔상(Persistence), 진폭/전하 분포, 2D PSD(`PsdRatio` vs `Charge`) 산점도, 및 사건 간 시간차 $\Delta t_k = t_{\text{trig},k} - t_{\text{trig},k-1}$ 컷을 통한 이온 피드백 애프터펄스 제거를 수행합니다.
 
