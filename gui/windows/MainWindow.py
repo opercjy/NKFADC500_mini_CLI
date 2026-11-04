@@ -101,7 +101,12 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.hv_tab = HvTab()
-        self.daq_tab = DaqTab(self.data_output_dir, self.config_input_dir, hv_provider=self.hv_tab.get_current_hv)
+        self.daq_tab = DaqTab(
+            self.data_output_dir,
+            self.config_input_dir,
+            hv_provider=self.hv_tab.get_current_hv,
+            hv_controller=self.hv_tab,
+        )
         self.online_tab = OnlineMonitorTab(data_dir=self.data_output_dir)
         self.prod_tab = ProductionTab(self.data_output_dir, self.config_input_dir)
         self.tlt_tab = TltTab()
@@ -404,5 +409,6 @@ class MainWindow(QMainWindow):
             self.prod_tab.force_abort()
 
         self.online_tab.stop_monitoring()
+        self.hv_tab.close_connection()
         self.save_ui_settings()
         super().closeEvent(event)

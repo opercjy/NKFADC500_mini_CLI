@@ -149,6 +149,17 @@ $$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + 
 - **하드웨어 파이프라인 안정화 대기 ([`Fadc500Device::ClearAndFlushUSB`](./core/src/Fadc500Device.cpp))**: `NKFADC500stop` 호출 직후 $2\text{ ms}$ ($2{,}000\ \mu\text{s} \gg \max(\text{CW}+\text{DLY}+\text{RL}) \approx 163\ \mu\text{s}$) 동안 대기하여 FPGA 지연 파이프라인 내부를 통과 중인 마지막 트리거 사건이 SDRAM에 완전히 기록되게 한 뒤 `BCOUNT`를 드레인하며, `NKFADC500reset` 이후 2차 잔여 `BCOUNT` 재검사를 통해 Cypress FX3 FIFO에 프리페치된 잔여 블록이 다음 런으로 넘어가는 현상을 $100\%$ 차단합니다.
 - **소프트웨어 Producer–Consumer 동기화 ([`BinaryDaqManager.cpp`](./core/src/BinaryDaqManager.cpp))**: 원자적 `fProducerActive` 플래그를 통해 `ProducerWorker`의 Post-Stop Tail Drain이 완료될 때까지 `ConsumerWorker`가 조기 종료되지 않도록 보장하며, 새 런 시작 시 `fDataQueue` 잔여 버퍼를 전수 회수합니다.
 
+### CAEN 고전압 하드웨어 추상화 계층(HAL) 및 `DaqTab` $\leftrightarrow$ `HvTab` 양방향 실시간 제어 ([`HvBackend.py`](./gui/core/HvBackend.py), [`HvTab.py`](./gui/widgets/HvTab.py))
+
+검출기 운용 환경에서 사용되는 다양한 CAEN 고전압 공급기를 단일 인터페이스로 제어하기 위해, [`AbstractHvBackend`](./gui/core/HvBackend.py) 추상 클래스 기반의 **3중 드라이버 백엔드(Official `CAENHVWrapper`, Direct ASCII `$BD:..,CMD:..` USB/TCP Protocol, Digital Twin Ramp/Trip Simulator)**와 **8채널 $\to$ FADC 4채널 매핑 매트릭스**를 구축하였습니다:
+
+1. **Universal Multichannel Crate Server (`SY5527`, `SY4527LC`, `SY4527`)**:
+   - 내장 CPU 서버에 TCP/IP로 접속하여 **`(Slot, Channel)` 계층 주소** 단위로 최대 8개 이상의 채널 파라미터(`V0Set`, `I0Set`, `RUp`, `RDWn`, `SVMax`, `VMon`, `IMon`, `Status`, `Pw`)를 슬롯별 배치 쿼리로 고속 제어·감시합니다.
+   - `HvTab`에서 연결된 서버의 실시간 상태(`VMon`, `IMon`, `ON`/`RAMP`/`TRIP`)는 Qt 시그널(`sig_hv_updated`)을 통해 **`DaqTab` 내부의 고전압 제어 패널에 실시간 표시**되며, 연구자는 탭을 이동하지 않고 **`DaqTab`에서 직접 목표 전압(`VSet`) 변경·적용, 개별/일괄 전원 인가(`ON`/`OFF`), 및 램핑·Trip 중 런 시작을 방지하는 안전 인터록(HV Safety Interlock)**을 수행할 수 있습니다.
+2. **8-Channel NIM / Desktop 모듈 (`N1470`/`N1471`, `DT1470ET`/`DT5533E`) 및 단독 점유(Exclusive Lock) 관리**:
+   - NIM 빈(Bin) 장착형 또는 탁상형(Desktop) 8채널 모듈은 USB 가상 시리얼(`/dev/ttyACM*`, `/dev/ttyUSB*`) 및 단일 소켓 TCP 인터페이스가 **단일 호스트·단일 프로세스 단독 점유(Single-Session Exclusive Lock)** 방식으로 동작합니다.
+   - [`CaenAsciiProtocolBackend`](./gui/core/HvBackend.py)는 `fcntl.flock(LOCK_EX | LOCK_NB)` 비차단 배타 잠금을 통해 외부 프로그램(CAEN `GECO2020`, 웹 세션 등)의 포트 선점 여부를 즉시 진단하며, 연결 해제 또는 GUI 종료(`MainWindow.closeEvent`) 시 세션과 파일 잠금을 결정론적으로 반환하여 좀비 잠금을 방지합니다. 만약 외부 프로그램이 세션을 단독 점유 중일 때는 **수동 폴백(Manual/Exclusive-Lock Fallback)** 모드로 자동 전환하여 8채널 전압·전류 메타데이터가 누락 없이 DAQ 런 요약 및 SQLite DB에 기록되도록 보장합니다.
+
 ---
 
 ## 4. 색각 이상자 배려(Okabe–Ito Palette) 및 고시인성 UI/UX 설계 표준

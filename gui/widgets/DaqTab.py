@@ -1,13 +1,17 @@
 import os
 from datetime import datetime
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -18,6 +22,8 @@ from core.Paths import get_bin_path
 from core.ProcessManager import ProcessManager
 from widgets.path_controller import PathControllerWidget
 
+OKABE_ITO_FADC_COLORS = ("#0072B2", "#D55E00", "#009E73", "#CC79A7")
+
 
 class DaqTab(QWidget):
     sig_log = Signal(str, bool)
@@ -27,11 +33,13 @@ class DaqTab(QWidget):
     sig_out_file = Signal(str)
     sig_run_finished = Signal()
 
-    def __init__(self, data_dir, config_dir, hv_provider=None):
+    def __init__(self, data_dir, config_dir, hv_provider=None, hv_controller=None):
         super().__init__()
         self.data_dir = data_dir
         self.config_dir = config_dir
         self.hv_provider = hv_provider
+        self.hv_controller = hv_controller
+        self._syncing_hv_ui = False
         self.start_time = None
         self.auto_mode = "NONE"
         self.abort_requested = False
@@ -105,6 +113,113 @@ class DaqTab(QWidget):
 
         cfg_group.setLayout(cfg_layout)
         layout.addWidget(cfg_group)
+
+        # =====================================================================
+        # Live CAEN High-Voltage Server Link & Quick Control Strip in DAQ Tab
+        # =====================================================================
+        self.hv_quick_group = QGroupBox(
+            "⚡ High-Voltage Server Link & FADC Ch 0–3 Live Control (CAEN SY5527 / SY4527LC / 8-Ch NIM)"
+        )
+        self.hv_quick_group.setStyleSheet(
+            "QGroupBox { border: 2px solid #0072B2; border-radius: 6px; background-color: #F4F9FD; margin-top: 8px;} "
+            "QGroupBox::title { color: #0072B2; font-weight: bold; }"
+        )
+        hv_vbox = QVBoxLayout(self.hv_quick_group)
+        hv_vbox.setContentsMargins(8, 16, 8, 8)
+        hv_vbox.setSpacing(6)
+
+        hv_top_bar = QHBoxLayout()
+        self.lbl_daq_hv_status = QLabel("⚪ HV Mode: Analog / Manual")
+        self.lbl_daq_hv_status.setStyleSheet("color: #37474F; font-weight: bold; font-size: 12px;")
+
+        self.cb_hv_interlock = QCheckBox("🔒 HV Safety Interlock (Ramping/Trip 시 Run 시작 보호)")
+        self.cb_hv_interlock.setChecked(True)
+        self.cb_hv_interlock.setStyleSheet("color: #0072B2; font-weight: bold; font-size: 12px;")
+
+        self.btn_daq_hv_conn = QPushButton("🔗 Connect Server")
+        self.btn_daq_hv_conn.setStyleSheet(
+            "background-color: #0072B2; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+        )
+        self.btn_daq_hv_conn.clicked.connect(self.on_daq_hv_connect_clicked)
+
+        self.btn_daq_hv_apply = QPushButton("⚡ Apply VSet")
+        self.btn_daq_hv_apply.setStyleSheet(
+            "background-color: #E69F00; color: black; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+        )
+        self.btn_daq_hv_apply.clicked.connect(self.on_daq_hv_apply_clicked)
+
+        self.btn_daq_hv_all_on = QPushButton("🟢 Ch 0–3 ON")
+        self.btn_daq_hv_all_on.setStyleSheet(
+            "background-color: #009E73; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+        )
+        self.btn_daq_hv_all_on.clicked.connect(lambda: self.on_daq_hv_all_power(True))
+
+        self.btn_daq_hv_all_off = QPushButton("🔴 Ch 0–3 OFF")
+        self.btn_daq_hv_all_off.setStyleSheet(
+            "background-color: #D55E00; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+        )
+        self.btn_daq_hv_all_off.clicked.connect(lambda: self.on_daq_hv_all_power(False))
+
+        hv_top_bar.addWidget(self.lbl_daq_hv_status, stretch=2)
+        hv_top_bar.addWidget(self.cb_hv_interlock)
+        hv_top_bar.addWidget(self.btn_daq_hv_conn)
+        hv_top_bar.addWidget(self.btn_daq_hv_apply)
+        hv_top_bar.addWidget(self.btn_daq_hv_all_on)
+        hv_top_bar.addWidget(self.btn_daq_hv_all_off)
+        hv_vbox.addLayout(hv_top_bar)
+
+        hv_ch_grid = QGridLayout()
+        hv_ch_grid.setSpacing(6)
+        self.daq_hv_lbl_map = []
+        self.daq_hv_spin_vset = []
+        self.daq_hv_lbl_mon = []
+        self.daq_hv_btn_pw = []
+
+        for fch in range(4):
+            c_hex = OKABE_ITO_FADC_COLORS[fch]
+            card = QWidget()
+            card.setStyleSheet(
+                f"QWidget {{ background-color: #FFFFFF; border: 1px solid {c_hex}; border-radius: 4px; }}"
+            )
+            card_lay = QHBoxLayout(card)
+            card_lay.setContentsMargins(6, 4, 6, 4)
+            card_lay.setSpacing(4)
+
+            lbl_ch = QLabel(f"Ch{fch} [S0:C{fch}]")
+            lbl_ch.setStyleSheet(f"color: {c_hex}; font-weight: bold; font-size: 12px; border: none;")
+
+            sp_v = QDoubleSpinBox()
+            sp_v.setRange(0.0, 8000.0)
+            sp_v.setDecimals(1)
+            sp_v.setSingleStep(10.0)
+            sp_v.setValue(1700.0)
+            sp_v.setSuffix(" V")
+            sp_v.setFixedWidth(92)
+            sp_v.setStyleSheet("font-weight: bold; font-size: 12px;")
+            sp_v.valueChanged.connect(lambda val, ch_idx=fch: self.on_daq_vset_edited(ch_idx, val))
+
+            lbl_mon = QLabel("VMon: N/A")
+            lbl_mon.setFont(QFont("Consolas", 10, QFont.Bold))
+            lbl_mon.setStyleSheet("color: #455A64; border: none;")
+
+            btn_pw = QPushButton("MANUAL")
+            btn_pw.setFixedWidth(68)
+            btn_pw.setStyleSheet("background-color: #90A4AE; color: white; font-weight: bold; font-size: 11px;")
+            btn_pw.clicked.connect(lambda _=False, ch_idx=fch: self.on_daq_ch_power_clicked(ch_idx))
+
+            card_lay.addWidget(lbl_ch)
+            card_lay.addWidget(sp_v)
+            card_lay.addWidget(lbl_mon, stretch=1)
+            card_lay.addWidget(btn_pw)
+
+            self.daq_hv_lbl_map.append(lbl_ch)
+            self.daq_hv_spin_vset.append(sp_v)
+            self.daq_hv_lbl_mon.append(lbl_mon)
+            self.daq_hv_btn_pw.append(btn_pw)
+            hv_ch_grid.addWidget(card, 0, fch)
+
+        hv_vbox.addLayout(hv_ch_grid)
+        layout.addWidget(self.hv_quick_group)
 
         control_layout = QHBoxLayout()
 
@@ -265,6 +380,130 @@ class DaqTab(QWidget):
         self.daq_manager.stat_signal.connect(self.update_stats)
         self.daq_manager.state_signal.connect(self.handle_process_state)
 
+        if self.hv_controller is not None and hasattr(self.hv_controller, "sig_hv_updated"):
+            self.hv_controller.sig_hv_updated.connect(self.update_hv_panel)
+            self.hv_controller._emit_hv_snapshot()
+
+    def update_hv_panel(self, snap: dict):
+        self._syncing_hv_ui = True
+        try:
+            caen_en = bool(snap.get("caen_enabled", False))
+            conn = bool(snap.get("connected", False))
+            disp = snap.get("display_name", "CAEN HV")
+            ep = snap.get("endpoint", "")
+
+            if not caen_en:
+                self.lbl_daq_hv_status.setText("⚪ HV Mode: Analog / Manual (수동 기록 연동)")
+                self.lbl_daq_hv_status.setStyleSheet("color: #5D4037; font-weight: bold; font-size: 12px;")
+                self.btn_daq_hv_conn.setText("🔗 Enable & Connect")
+                self.btn_daq_hv_conn.setStyleSheet(
+                    "background-color: #0072B2; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+                )
+            elif conn:
+                self.lbl_daq_hv_status.setText(f"🟢 [{disp}] Online ({ep})")
+                self.lbl_daq_hv_status.setStyleSheet("color: #009E73; font-weight: bold; font-size: 12px;")
+                self.btn_daq_hv_conn.setText("❌ Disconnect")
+                self.btn_daq_hv_conn.setStyleSheet(
+                    "background-color: #607D8B; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+                )
+            else:
+                self.lbl_daq_hv_status.setText(f"🟡 [{disp}] Offline / Exclusive-Lock Fallback")
+                self.lbl_daq_hv_status.setStyleSheet("color: #D55E00; font-weight: bold; font-size: 12px;")
+                self.btn_daq_hv_conn.setText("🔗 Connect Server")
+                self.btn_daq_hv_conn.setStyleSheet(
+                    "background-color: #0072B2; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+                )
+
+            fadc_chs = snap.get("fadc_channels", {})
+            for fch in range(4):
+                info = fadc_chs.get(fch)
+                if info is None:
+                    self.daq_hv_lbl_map[fch].setText(f"Ch{fch} [Unmapped]")
+                    self.daq_hv_lbl_mon[fch].setText("VMon: --")
+                    self.daq_hv_btn_pw[fch].setText("N/A")
+                    self.daq_hv_btn_pw[fch].setEnabled(False)
+                    continue
+
+                slot = info.get("slot", 0)
+                hw_ch = info.get("hw_ch", fch)
+                vset = float(info.get("vset", 1700.0))
+                vmon = float(info.get("vmon", 0.0))
+                imon = float(info.get("imon", 0.0))
+                st = str(info.get("status", "OFF"))
+
+                self.daq_hv_lbl_map[fch].setText(f"Ch{fch} [S{slot}:C{hw_ch}]")
+                if not self.daq_hv_spin_vset[fch].hasFocus():
+                    self.daq_hv_spin_vset[fch].setValue(vset)
+
+                if caen_en and conn:
+                    self.daq_hv_lbl_mon[fch].setText(f"{vmon:.1f}V | {imon:.2f}uA")
+                else:
+                    self.daq_hv_lbl_mon[fch].setText(f"Set:{vset:.0f}V")
+
+                btn = self.daq_hv_btn_pw[fch]
+                btn.setEnabled(True)
+                btn.setText(st)
+                if st in ("TRIP", "OVC", "OVV"):
+                    btn.setStyleSheet("background-color: #D55E00; color: white; font-weight: bold; font-size: 11px;")
+                elif st.startswith("RAMP"):
+                    btn.setStyleSheet("background-color: #E69F00; color: black; font-weight: bold; font-size: 11px;")
+                elif st == "ON":
+                    btn.setStyleSheet("background-color: #009E73; color: white; font-weight: bold; font-size: 11px;")
+                else:
+                    btn.setStyleSheet("background-color: #607D8B; color: white; font-weight: bold; font-size: 11px;")
+        finally:
+            self._syncing_hv_ui = False
+
+        cfg_file = self.combo_cfg.currentData()
+        if cfg_file:
+            self.sig_config.emit(self.get_config_summary(cfg_file, thr_override=self.current_scan_thr))
+
+    def on_daq_hv_connect_clicked(self):
+        if self.hv_controller is None:
+            return
+        if not self.hv_controller.cb_enable_scm.isChecked():
+            self.hv_controller.cb_enable_scm.setChecked(True)
+        self.hv_controller.toggle_caen()
+
+    def on_daq_hv_apply_clicked(self):
+        if self.hv_controller is None:
+            return
+        for fch in range(4):
+            self.hv_controller.set_fadc_channel_vset(fch, self.daq_hv_spin_vset[fch].value(), apply_hw=False)
+        self.hv_controller.apply_all_settings()
+
+    def on_daq_hv_all_power(self, power_on: bool):
+        if self.hv_controller is None:
+            return
+        self.hv_controller.set_all_mapped_power(power_on)
+
+    def on_daq_vset_edited(self, fadc_ch: int, val: float):
+        if self._syncing_hv_ui or self.hv_controller is None:
+            return
+        self.hv_controller.set_fadc_channel_vset(fadc_ch, val, apply_hw=False)
+
+    def on_daq_ch_power_clicked(self, fadc_ch: int):
+        if self.hv_controller is None:
+            return
+        self.hv_controller.set_fadc_channel_vset(fadc_ch, self.daq_hv_spin_vset[fadc_ch].value(), apply_hw=True)
+        self.hv_controller.toggle_fadc_channel_power(fadc_ch)
+
+    def _check_hv_interlock(self) -> bool:
+        if not self.cb_hv_interlock.isChecked() or self.hv_controller is None:
+            return True
+        unsafe, reason = self.hv_controller.has_unsafe_channels()
+        if not unsafe:
+            return True
+        reply = QMessageBox.warning(
+            self,
+            "HV Safety Interlock Triggered",
+            f"고전압 채널이 아직 안정화되지 않았거나 Trip 상태입니다:\n\n• {reason}\n\n"
+            "전압 안정화 후 시작하는 것을 권장합니다. 그래도 강제로 DAQ Run을 시작하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return reply == QMessageBox.Yes
+
     def generate_out_filename(self, subrun=0):
         prefix = self.input_prefix.text().strip() or "run"
         run_num = self.input_run.text().strip() or "999"
@@ -325,6 +564,8 @@ class DaqTab(QWidget):
         if not cfg_file:
             self.sig_log.emit("\033[1;31m[ERROR] 설정 파일을 찾을 수 없습니다!\033[0m", True)
             return
+        if subrun_idx == 1 and not self._check_hv_interlock():
+            return
 
         self.abort_requested = False
         self.auto_mode = "MANUAL"
@@ -371,6 +612,8 @@ class DaqTab(QWidget):
 
         if self.sp_start.value() > self.sp_end.value():
             self.sig_log.emit("\033[1;31m[ERROR] Start ADC must be <= End ADC!\033[0m", True)
+            return
+        if not self._check_hv_interlock():
             return
 
         self.abort_requested = False
