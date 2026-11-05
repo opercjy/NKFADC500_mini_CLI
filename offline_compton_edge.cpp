@@ -11,6 +11,7 @@
 #include "TLegend.h"
 #include "TLine.h"
 #include "TMath.h"
+#include "TPaveStats.h"
 #include "TString.h"
 #include "TStyle.h"
 #include "TSystem.h"
@@ -28,8 +29,6 @@ TString ResolveDefaultComptonFile(const char* requested) {
         return TString(requested);
     }
     const char* fallbacks[] = {
-        "data/20261104_160_temp_EDA_CA_1000_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
-        "data/20261104_160_temp_EDA_CA_50_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
         "data/hv1700_ch0_thr40_prod.root",
         "data/run_101_prod.root"
     };
@@ -48,7 +47,7 @@ Double_t SmearedComptonEdge(Double_t* x, Double_t* par) {
 // NOTICE NKFADC500 Mini nominal input: 2.5 Vpp into 50 Ohm at 500 MS/s (2.0 ns/sample)
 // -> 1 ADC*sample = (2.5 V / 4096) * (2.0 ns / 50 Ohm) = 0.0244140625 pC
 // For 60Co (1.173 & 1.332 MeV gamma), effective mean Compton edge E_CE = 1.041 MeVee (963 & 1118 keV).
-void offline_compton_edge(const char* filename = "data/20261104_160_temp_EDA_CA_1000_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
+void offline_compton_edge(const char* filename = "data/hv1700_ch0_thr40_prod.root",
                           int targetCh = 0,
                           double x_max_pc = 38.0,
                           double vpp = 2.5,
@@ -87,7 +86,9 @@ void offline_compton_edge(const char* filename = "data/20261104_160_temp_EDA_CA_
     const double adc_to_pc = (vpp / 4096.0) * (dt_ns / 50.0) * 1000.0;
     const TString brChg = ResolveComptonBranch(tree, "Charge", targetCh);
 
-    TCanvas* c1 = new TCanvas("c1_compton", "60Co Compton Edge Solver (NKFADC500 Mini)", 1100, 760);
+    TCanvas* c1 = new TCanvas("c1_compton", "60Co Compton Edge Solver (NKFADC500 Mini)", 1150, 780);
+    c1->SetLeftMargin(0.13);
+    c1->SetRightMargin(0.05);
     gPad->SetGrid();
 
     tree->Draw(Form("%s * %.10f>>hCompton(76, 0, %f)", brChg.Data(), adc_to_pc, x_max_pc), "", "HIST");
@@ -154,8 +155,8 @@ void offline_compton_edge(const char* filename = "data/20261104_160_temp_EDA_CA_
     lRidge->SetLineWidth(2);
     lRidge->Draw("SAME");
 
-    // Compton edge arrow & annotation
-    TArrow* arrEdge = new TArrow(edge_pc + (x_max_pc * 0.08), y_edge + (continuumAmp * 0.18), edge_pc, y_edge, 0.016, "|>");
+    // Compton edge arrow & annotation (placed below stat box to prevent overlap)
+    TArrow* arrEdge = new TArrow(edge_pc + (x_max_pc * 0.08), y_edge * 0.56, edge_pc, y_edge, 0.016, "|>");
     arrEdge->SetLineColor(kMagenta + 2);
     arrEdge->SetLineWidth(2);
     arrEdge->SetFillColor(kMagenta + 2);
@@ -163,19 +164,27 @@ void offline_compton_edge(const char* filename = "data/20261104_160_temp_EDA_CA_
 
     TLatex* latEdge = new TLatex(
         edge_pc + (x_max_pc * 0.085),
-        y_edge + (continuumAmp * 0.18),
+        y_edge * 0.56,
         Form("^{60}Co Compton Edge: Q_{CE} = %.2f #pm %.2f pC (#sigma = %.2f pC)", edge_pc, fitEdge->GetParError(1), sigma_pc)
     );
-    latEdge->SetTextSize(0.030);
+    latEdge->SetTextSize(0.028);
     latEdge->SetTextColor(kMagenta + 2);
     latEdge->SetTextAlign(12);
     latEdge->Draw();
 
-    TLegend* leg = new TLegend(0.14, 0.74, 0.56, 0.88);
+    TLegend* leg = new TLegend(0.15, 0.74, 0.57, 0.88);
     leg->AddEntry(hCompton, Form("Measured ^{60}Co Charge Spectrum (N = %lld)", tree->GetEntries()), "f");
     leg->AddEntry(lRidge, Form("Compton Continuum Ridge (Q_{ridge} = %.1f pC)", peakPos), "l");
     leg->AddEntry(fitEdge, Form("Gaussian-Smeared Erfc Fit (Q_{CE} = %.2f pC)", edge_pc), "l");
     leg->Draw();
+
+    gPad->Update();
+    if (TPaveStats* st = dynamic_cast<TPaveStats*>(hCompton->FindObject("stats"))) {
+        st->SetX1NDC(0.60);
+        st->SetX2NDC(0.94);
+        st->SetY1NDC(0.56);
+        st->SetY2NDC(0.89);
+    }
 
     std::cout << "\n========================================================" << std::endl;
     std::cout << " [60Co Compton Edge Inverse Solution | Channel " << targetCh << "]" << std::endl;

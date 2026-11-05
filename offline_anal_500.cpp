@@ -27,8 +27,6 @@ TString ResolveDefaultProdFile(const char* requested) {
         return TString(requested);
     }
     const char* fallbacks[] = {
-        "data/20261104_160_temp_EDA_CA_1000_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
-        "data/20261104_160_temp_EDA_CA_50_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
         "data/hv1700_ch0_thr40_prod.root",
         "data/run_101_prod.root"
     };
@@ -39,7 +37,7 @@ TString ResolveDefaultProdFile(const char* requested) {
 }
 } // namespace
 
-void offline_anal_500(const char* filename = "data/20261104_160_temp_EDA_CA_1000_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
+void offline_anal_500(const char* filename = "data/hv1700_ch0_thr40_prod.root",
                       int targetCh = 0,
                       double ampCut = 45.0,
                       const char* savePng = "") {

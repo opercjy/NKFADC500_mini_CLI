@@ -28,8 +28,6 @@ TString ResolveDefaultEduFile(const char* requested) {
         return TString(requested);
     }
     const char* fallbacks[] = {
-        "data/20261104_160_temp_EDA_CA_1000_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
-        "data/20261104_160_temp_EDA_CA_50_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
         "data/hv1700_ch0_thr40_prod.root",
         "data/run_101_prod.root"
     };
@@ -42,7 +40,7 @@ TString ResolveDefaultEduFile(const char* requested) {
 
 // NOTICE NKFADC500 Mini nominal input: 12-bit (4096), 2.5 Vpp (+/-1.25 V into 50 Ohm), 500 MS/s (2.0 ns/sample)
 // -> 1 ADC = 0.6103515625 mV, 1 ADC*sample = (2.5 V / 4096) * (2.0 ns / 50 Ohm) = 0.0244140625 pC
-void offline_anal_edu(const char* filename = "data/20261104_160_temp_EDA_CA_1000_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
+void offline_anal_edu(const char* filename = "data/hv1700_ch0_thr40_prod.root",
                       int targetCh = 0,
                       double ampCut = 45.0,
                       double dtCut_us = 250.0,
@@ -210,19 +208,20 @@ void offline_anal_edu(const char* filename = "data/20261104_160_temp_EDA_CA_1000
 
     // 6. Educational Hardware & Radioactive Source Physics Summary
     c1->cd(6);
-    TPaveText* pt = new TPaveText(0.06, 0.08, 0.94, 0.92);
-    pt->AddText("[NKFADC500 Mini Educational Summary - ^{60}Co #gamma Run]");
+    TPaveText* pt = new TPaveText(0.03, 0.08, 0.97, 0.92);
+    pt->SetTextAlign(12);
+    pt->AddText("  [NKFADC500 Mini Educational Summary - ^{60}Co #gamma Run]");
     pt->AddText(" ");
-    pt->AddText(Form("- Digitizer: 12-bit (4096), %.1f Vpp (50 #Omega), %.0f MS/s (#Deltat = %.1f ns)", vpp, 1000.0 / dt_ns, dt_ns));
-    pt->AddText(Form("- Calibration: 1 ADC = %.4f mV | 1 ADC*sample = %.5f pC", (vpp * 1000.0) / 4096.0, adc_to_pc));
-    pt->AddText(Form("- Detector: Hamamatsu H7195 PMT (-1700 V) + EDA_CA Liquid Scintillator"));
-    pt->AddText(Form("- Source: ^{60}Co (1.173 / 1.332 MeV #gamma, Compton Edge E_{CE} = 0.963 / 1.118 MeV)"));
-    pt->AddText(Form("- Events: %lld evts | Peak Timing: t_{peak} = 372.0 ns (DLY = 400 ns)", tree->GetEntries()));
-    pt->AddText(Form("- Cuts: Amp > %.1f ADC (Noise) | #Deltat > %.0f #mus (Afterpulse Check)", ampCut, dtCut_us));
+    pt->AddText(Form("  - Digitizer: 12-bit (4096), %.1f Vpp (50 #Omega), %.0f MS/s (#Deltat = %.1f ns)", vpp, 1000.0 / dt_ns, dt_ns));
+    pt->AddText(Form("  - Calibration: 1 ADC = %.4f mV | 1 ADC*sample = %.5f pC", (vpp * 1000.0) / 4096.0, adc_to_pc));
+    pt->AddText("  - Detector: 2-inch PMT (ORTEC -1700 V, Ch 0) + Liquid Scintillator");
+    pt->AddText("  - Source: ^{60}Co (1.173 / 1.332 MeV #gamma, E_{CE} = 0.963 / 1.118 MeV)");
+    pt->AddText(Form("  - Events: %lld evts | Peak Timing: t_{peak} = 372.0 ns (DLY = 400 ns)", tree->GetEntries()));
+    pt->AddText(Form("  - Cuts: Amp > %.1f ADC (Noise) | #Deltat > %.0f #mus (Afterpulse Check)", ampCut, dtCut_us));
     pt->SetFillColor(kWhite);
     pt->SetShadowColor(kWhite);
     pt->SetTextFont(42);
-    pt->SetTextSize(0.038);
+    pt->SetTextSize(0.032);
     pt->Draw();
 
     c1->Modified();
