@@ -1,0 +1,53 @@
+* ==============================================================================
+* Hamamatsu H7195 (2-inch, 12-Stage PMT @ -1700 V) -> RG-58 (50 Ohm)
+* -> Notice Korea NKFADC500 Mini (50 Ohm AFE, 500 MS/s, 12-Bit, 2.5 Vpp)
+* Single-Photoelectron (1 PE) & Scintillation Pulse Transient SPICE Netlist
+* ==============================================================================
+.title H7195_PMT_to_NKFADC500_Mini_Signal_Chain
+
+* --- Circuit Parameters ---
+* G_PMT = 3.25e6 -> Q_1pe = e * G_PMT = 0.520707 pC
+* Bi-exponential current source: tau_r = 1.65 ns, tau_d = 3.60 ns (tr_10_90 = 2.7 ns, FWHM = 5.8 ns)
+.param N_PE = 1.0
+.param Q_1PE = 0.520707p
+.param TAU_R = 1.65n
+.param TAU_D = 3.60n
+.param T_START = 353.5n
+.param R_BACK_VAL = 100Meg
+
+* --- 1. Hamamatsu H7195 Anode Current Source (Negative Polarity PMT Pulse) ---
+* In ngspice EXP(0 I0 TD1 TAU_R TD1 TAU_D):
+* For t > TD1, I(t) = I0 * (exp(-(t-TD1)/TAU_D) - exp(-(t-TD1)/TAU_R))
+* Integral of I(t) dt from TD1 to inf is I0 * (TAU_D - TAU_R) = N_PE * Q_1PE
+I_PMT n_anode 0 EXP(0 {N_PE * Q_1PE / (TAU_D - TAU_R)} {T_START} {TAU_R} {T_START} {TAU_D})
+
+* --- 2. H7195 Anode Parasitics & Base Output Network (R329-02 / H7195 Assembly) ---
+R_ANODE n_anode 0 100k
+C_ANODE n_anode 0 6.0p
+L_LEAD  n_anode n_damp 4.5n
+R_DAMP  n_damp  n_bnc_tx 22.0
+R_BACK  n_bnc_tx 0 {R_BACK_VAL}
+
+* --- 3. RG-58 C/U 50-Ohm Coaxial Transmission Line (3.0 m, TD = 15.0 ns) ---
+T_RG58  n_bnc_tx 0 n_bnc_rx 0 Z0=50.0 TD=15.0n
+
+* --- 4. Notice Korea NKFADC500 Mini Ch0 Front-End (50 Ohm Termination + Buffered 225 MHz Bessel AFE) ---
+R_TERM  n_bnc_rx 0 50.0
+C_IN    n_bnc_rx 0 3.5p
+E_BUF   n_buf    0 n_bnc_rx 0 1.0
+R_AFE   n_buf    n_afe1 50.0
+L_AFE   n_afe1   n_adc_in 15.0n
+C_AFE   n_adc_in 0 6.0p
+R_ADC   n_adc_in 0 100k
+
+* --- Transient Simulation (0 to 992 ns = RL=8 Window, 50 ps step) ---
+.tran 0.05n 992.0n 0.0n 0.05n
+
+.control
+set wr_singlescale
+set wr_vecnames
+run
+wrdata spice/h7195_1pe_out.txt v(n_anode) v(n_bnc_tx) v(n_bnc_rx) v(n_adc_in)
+quit
+.endc
+.end

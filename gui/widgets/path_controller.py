@@ -1,4 +1,5 @@
 import os
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFileDialog
 
 class PathControllerWidget(QWidget):
@@ -6,6 +7,8 @@ class PathControllerWidget(QWidget):
     [OOP 모듈] 데이터 저장 및 Config 읽기 경로를 독립적으로 제어하는 UI 객체
     DaqTab, ProductionTab 등 어디서든 재사용 가능합니다.
     """
+    pathChanged = Signal(str)
+
     def __init__(self, label_text, default_path, parent=None):
         super().__init__(parent)
         self.layout = QHBoxLayout(self)
@@ -15,7 +18,7 @@ class PathControllerWidget(QWidget):
         self.label = QLabel(label_text)
         self.label.setStyleSheet("font-weight: bold; color: #333333;")
         
-        self.path_input = QLineEdit(default_path)
+        self.path_input = QLineEdit(os.path.abspath(default_path) if default_path else "")
         self.path_input.setStyleSheet("""
             background-color: #FFFFFF; 
             color: #333333; 
@@ -46,7 +49,16 @@ class PathControllerWidget(QWidget):
         # 파일 다이얼로그를 열어 사용자가 직접 GUI로 폴더를 선택하도록 함
         dir_path = QFileDialog.getExistingDirectory(self, "Select Directory", self.path_input.text())
         if dir_path:
-            self.path_input.setText(dir_path)
+            self.set_path(dir_path)
+
+    def set_path(self, new_path: str, emit_signal: bool = True):
+        if not new_path:
+            return
+        norm_path = os.path.abspath(new_path)
+        if norm_path != self.path_input.text().strip():
+            self.path_input.setText(norm_path)
+            if emit_signal:
+                self.pathChanged.emit(norm_path)
 
     def get_path(self):
         # 다른 탭(DaqTab, ProductionTab)에서 설정된 경로를 문자열로 빼갈 때 사용하는 Getter 메서드

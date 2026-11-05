@@ -42,16 +42,24 @@ def _compute_baseline_samples(delay_ns: float, dt_ns: float, record_length: int)
 
 
 class OnlineMonitorTab(QWidget):
-    def __init__(self, data_dir=None, parent=None):
+    # Hardware physics calibration constants (2.5 Vpp, 12-bit 4096 ADC, R_term = 50 Ohm)
+    DV_LSB_MV = 2500.0 / 4096.0          # 0.6103515625 mV / ADC
+    Q_LSB_PC_PER_NS = (2500.0 / 4096.0) * 1.0e-3 / 50.0 * 1.0e3  # 0.01220703125 pC / (ADC * ns)
+
+    def __init__(self, data_dir=None, config_dir=None, parent=None):
         super().__init__(parent)
         self.data_dir = os.path.abspath(data_dir) if data_dir else get_default_data_dir()
+        self.config_dir = os.path.abspath(config_dir) if config_dir else get_default_config_dir()
         self.current_file = ""
         self.file_pos = 0
+        self._awaiting_target_file = False
 
         # Stream decoding parameters auto-synced from companion <run>.cfg / settings.cfg
         self.dt_ns = 2.0
         self.delay_ns = np.array([400.0, 400.0, 400.0, 400.0], dtype=np.float64)
         self.polarity = np.array([0, 0, 0, 0], dtype=np.int32)  # 0: negative pulse, 1: positive pulse
+        self.thr_adc = np.array([30, 4095, 4095, 4095], dtype=np.int32)
+        self._initial_ch_synced = False
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.read_binary_chunk)
@@ -66,6 +74,16 @@ class OnlineMonitorTab(QWidget):
         # Ch0: #0072B2 (Blue), Ch1: #D55E00 (Vermilion), Ch2: #009E73 (Bluish Green), Ch3: #CC79A7 (Reddish Purple)
         self.colors = [(0, 114, 178), (213, 94, 0), (0, 158, 115), (204, 121, 167)]
         self._init_ui()
+        self._load_companion_config("")
+
+    def set_data_dir(self, new_dir: str):
+        if new_dir:
+            self.data_dir = os.path.abspath(new_dir)
+
+    def set_config_dir(self, new_cfg_dir: str):
+        if new_cfg_dir:
+            self.config_dir = os.path.abspath(new_cfg_dir)
+            self._load_companion_config(self.current_file)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -84,6 +102,9 @@ class OnlineMonitorTab(QWidget):
         self.lbl_status = QLabel("Status: Stopped")
         self.lbl_status.setStyleSheet("color: red; font-weight: bold;")
 
+        self.lbl_phys_stats = QLabel("Ch0 Stats: --")
+        self.lbl_phys_stats.setStyleSheet("color: #0072B2; font-family: Consolas; font-weight: bold; font-size: 12px;")
+
         self.btn_start.clicked.connect(self.start_monitoring)
         self.btn_stop.clicked.connect(self.stop_monitoring)
         self.btn_clear.clicked.connect(self.clear_plots)
@@ -92,6 +113,8 @@ class OnlineMonitorTab(QWidget):
         ctrl_layout.addWidget(self.btn_stop)
         ctrl_layout.addWidget(self.btn_clear)
         ctrl_layout.addWidget(self.lbl_status)
+        ctrl_layout.addSpacing(12)
+        ctrl_layout.addWidget(self.lbl_phys_stats)
         ctrl_layout.addStretch()
         layout.addLayout(ctrl_layout)
 
@@ -109,14 +132,27 @@ class OnlineMonitorTab(QWidget):
             ch_h_layout.addWidget(cb)
         ch_group.setLayout(ch_h_layout)
 
-        mode_group = QGroupBox("Analytics Mode")
+        mode_group = QGroupBox("Analytics Mode && Units")
         mode_h_layout = QHBoxLayout()
-        self.radio_amp = QRadioButton("Pulse Amplitude (Peak)")
-        self.radio_charge = QRadioButton("Pulse Integral (Charge)")
-        self.radio_amp.setChecked(True)
+        self.radio_amp = QRadioButton("Amplitude (Peak)")
+        self.radio_charge = QRadioButton("Integral (Charge)")
+        self.radio_charge.setChecked(True)
         self.radio_amp.toggled.connect(self.toggle_mode)
+
+        self.cb_phys_units = QCheckBox("Physical Units (mV / pC)")
+        self.cb_phys_units.setChecked(True)
+        self.cb_phys_units.setStyleSheet("color: #0072B2; font-weight: bold;")
+        self.cb_phys_units.toggled.connect(self.toggle_mode)
+
+        self.cb_log_y = QCheckBox("Log Y (Spectrum)")
+        self.cb_log_y.setChecked(True)
+        self.cb_log_y.setStyleSheet("color: #D55E00; font-weight: bold;")
+        self.cb_log_y.toggled.connect(self.update_plots)
+
         mode_h_layout.addWidget(self.radio_amp)
         mode_h_layout.addWidget(self.radio_charge)
+        mode_h_layout.addWidget(self.cb_phys_units)
+        mode_h_layout.addWidget(self.cb_log_y)
         mode_group.setLayout(mode_h_layout)
 
         param_group = QGroupBox("Display Parameters")
@@ -182,11 +218,14 @@ class OnlineMonitorTab(QWidget):
         dt_ns = 2.0
         delay_ns = np.array([400.0, 400.0, 400.0, 400.0], dtype=np.float64)
         polarity = np.array([0, 0, 0, 0], dtype=np.int32)
+        thr_adc = np.array([30, 4095, 4095, 4095], dtype=np.int32)
 
         candidates = []
         if dat_filepath:
             stem, _ = os.path.splitext(dat_filepath)
             candidates.append(stem + ".cfg")
+        if getattr(self, "config_dir", ""):
+            candidates.append(os.path.join(self.config_dir, "settings.cfg"))
         candidates.append(os.path.join(get_default_config_dir(), "settings.cfg"))
 
         cfg_path = next((p for p in candidates if p and os.path.exists(p)), "")
@@ -218,23 +257,53 @@ class OnlineMonitorTab(QWidget):
                             else:
                                 for idx, iv in enumerate(ivals):
                                     polarity[idx] = iv
+                        elif key == "THR":
+                            tvals = [max(0, int(v, 0)) for v in vals[:4]]
+                            if len(tvals) == 1:
+                                thr_adc[:] = tvals[0]
+                            else:
+                                for idx, tv in enumerate(tvals):
+                                    thr_adc[idx] = tv
             except Exception:
                 pass
 
         self.dt_ns = dt_ns
         self.delay_ns = delay_ns
         self.polarity = polarity
+        self.thr_adc = thr_adc
         self.plot_wave.setLabel("bottom", "Time", units=f"ns ({self.dt_ns:.1f} ns/Sample)")
+
+        if not self._initial_ch_synced:
+            active_mask = [bool(t < 4095) for t in self.thr_adc]
+            if any(active_mask) and not all(active_mask):
+                for ch_idx, is_act in enumerate(active_mask):
+                    self.ch_checkboxes[ch_idx].setChecked(is_act)
+            self._initial_ch_synced = True
+        self._update_axis_labels()
+
+    def _update_axis_labels(self):
+        use_phys = self.cb_phys_units.isChecked()
+        self.plot_wave.setLabel("left", "Pulse Signal", units="mV" if use_phys else "ADC")
+        if self.radio_amp.isChecked():
+            self.plot_spec.setLabel("bottom", "Pulse Amplitude (mV)" if use_phys else "Amplitude (ADC)")
+        else:
+            self.plot_spec.setLabel("bottom", "Pulse Integral Charge Q (pC)" if use_phys else "Charge (ADC*ns)")
+        self.plot_spec.setLabel("left", "log10(Counts + 1)" if self.cb_log_y.isChecked() else "Counts")
 
     @Slot(str)
     def set_target_file(self, filepath: str):
-        if filepath and filepath != self.current_file:
-            self.current_file = filepath
-            self.file_pos = 0
-            self._load_companion_config(self.current_file)
-            if self.timer.isActive():
+        if filepath:
+            abs_fp = os.path.abspath(filepath)
+            is_new = abs_fp != self.current_file
+            self.current_file = abs_fp
+            self._awaiting_target_file = not os.path.exists(abs_fp)
+            if is_new:
+                self.file_pos = 0
+                self._load_companion_config(self.current_file)
                 self.clear_plots()
-                self.lbl_status.setText(f"Status: Direct Parsing {os.path.basename(self.current_file)}...")
+                if self.timer.isActive():
+                    self.lbl_status.setText(f"Status: Direct Parsing {os.path.basename(self.current_file)}...")
+                    self.lbl_status.setStyleSheet("color: green; font-weight: bold;")
 
     @Slot()
     def _on_interval_changed(self):
@@ -250,10 +319,10 @@ class OnlineMonitorTab(QWidget):
     @Slot()
     def toggle_mode(self):
         self.clear_plots()
-        if self.radio_amp.isChecked():
-            self.plot_spec.setLabel("bottom", "Amplitude (ADC)")
-        else:
-            self.plot_spec.setLabel("bottom", "Charge (ADC*ns)")
+        self._update_axis_labels()
+        if self.current_file and os.path.exists(self.current_file):
+            self.file_pos = max(0, os.path.getsize(self.current_file) - 500 * 4096)
+            self.read_binary_chunk()
 
     @Slot()
     def update_visibility(self):
@@ -280,7 +349,7 @@ class OnlineMonitorTab(QWidget):
     @Slot()
     def start_monitoring(self):
         dat_files = glob.glob(os.path.join(self.data_dir, "*.dat"))
-        if not self.current_file or not os.path.exists(self.current_file):
+        if not self.current_file or (not os.path.exists(self.current_file) and not self._awaiting_target_file):
             if dat_files:
                 self.current_file = max(dat_files, key=os.path.getmtime)
             else:
@@ -289,13 +358,13 @@ class OnlineMonitorTab(QWidget):
                 return
 
         self._load_companion_config(self.current_file)
+        self.clear_plots()
+        self.file_pos = 0
+
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.lbl_status.setText(f"Status: Direct Parsing {os.path.basename(self.current_file)}...")
         self.lbl_status.setStyleSheet("color: green; font-weight: bold;")
-
-        self.clear_plots()
-        self.file_pos = 0
 
         interval_ms = max(20, int(self.spin_interval.value() * 1000))
         self.timer.start(interval_ms)
@@ -312,6 +381,7 @@ class OnlineMonitorTab(QWidget):
     def read_binary_chunk(self):
         if not self.current_file or not os.path.exists(self.current_file):
             return
+        self._awaiting_target_file = False
 
         try:
             file_size = os.path.getsize(self.current_file)
@@ -375,10 +445,13 @@ class OnlineMonitorTab(QWidget):
                 pol_sign = np.where(self.polarity == 0, 1.0, -1.0).reshape(1, 1, 4)
                 signals = (baselines - waves) * pol_sign  # positive-going for both POL=0 and POL=1
 
+                use_phys = self.cb_phys_units.isChecked()
                 if self.radio_amp.isChecked():
-                    metrics = np.max(signals, axis=1)  # shape: (n_ev, 4)
+                    scale = self.DV_LSB_MV if use_phys else 1.0
+                    metrics = np.max(signals, axis=1) * scale  # shape: (n_ev, 4)
                 else:
-                    metrics = np.sum(np.maximum(signals, 0.0), axis=1) * self.dt_ns
+                    scale = self.Q_LSB_PC_PER_NS if use_phys else 1.0
+                    metrics = np.sum(np.maximum(signals, 0.0), axis=1) * self.dt_ns * scale
 
                 for ch_id in range(4):
                     self.hist_data[ch_id].extend(metrics[:, ch_id].tolist())
@@ -389,6 +462,10 @@ class OnlineMonitorTab(QWidget):
             pass
 
     def update_plots(self):
+        use_phys = self.cb_phys_units.isChecked()
+        use_log_y = self.cb_log_y.isChecked()
+        self._update_axis_labels()
+
         for ch_id in range(4):
             if not self.ch_checkboxes[ch_id].isChecked():
                 continue
@@ -398,10 +475,22 @@ class OnlineMonitorTab(QWidget):
                 n_ped = _compute_baseline_samples(float(self.delay_ns[ch_id]), self.dt_ns, len(wf))
                 baseline = float(np.mean(wf[:n_ped])) if n_ped > 0 else 0.0
                 sig = (baseline - wf) if self.polarity[ch_id] == 0 else (wf - baseline)
+                if use_phys:
+                    sig = sig * self.DV_LSB_MV
                 x_data = np.arange(len(wf), dtype=np.float64) * self.dt_ns
                 self.curves_wave[ch_id].setData(x_data, sig)
 
             data_arr = self.hist_data[ch_id]
             if len(data_arr) > 2:
-                y, x_edges = np.histogram(np.fromiter(data_arr, dtype=np.float64, count=len(data_arr)), bins=100)
-                self.curves_spec[ch_id].setData(x_edges, y)
+                arr_np = np.fromiter(data_arr, dtype=np.float64, count=len(data_arr))
+                y, x_edges = np.histogram(arr_np, bins=100)
+                y_plot = np.log10(y.astype(np.float64) + 1.0) if use_log_y else y.astype(np.float64)
+                self.curves_spec[ch_id].setData(x_edges, y_plot)
+                if ch_id == 0:
+                    unit_str = ("mV" if self.radio_amp.isChecked() else "pC") if use_phys else ("ADC" if self.radio_amp.isChecked() else "ADC*ns")
+                    med_v = float(np.median(arr_np))
+                    mean_v = float(np.mean(arr_np))
+                    p99_v = float(np.percentile(arr_np, 99))
+                    self.lbl_phys_stats.setText(
+                        f"Ch0 (N={len(arr_np)}): Med={med_v:.1f} {unit_str} | Mean={mean_v:.1f} {unit_str} | P99={p99_v:.1f} {unit_str}"
+                    )

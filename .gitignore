@@ -23,6 +23,7 @@ data/*.cfg
 *Dict.h
 
 # Python Cache & Local GUI State
+.venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/

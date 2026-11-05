@@ -76,9 +76,17 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Fallback check if launched from bin/ with default relative config path
-    if (!std::filesystem::exists(configFile) && std::filesystem::exists("../config/settings.cfg")) {
-        configFile = "../config/settings.cfg";
+    // Fallback check if launched from bin/ or an arbitrary external directory without -f
+    if (!std::filesystem::exists(configFile)) {
+        const std::string resolvedCfg = NoticeFadc500Spec::ResolveCompanionConfigPath(configFile, "", argv[0]);
+        if (!resolvedCfg.empty() && std::filesystem::exists(resolvedCfg)) {
+            configFile = resolvedCfg;
+        } else if (const char* envRoot = std::getenv("NKFADC500_ROOT")) {
+            std::filesystem::path cand = std::filesystem::path(envRoot) / "config" / "settings.cfg";
+            if (std::filesystem::exists(cand)) {
+                configFile = cand.string();
+            }
+        }
     }
 
     std::signal(SIGINT, SignalHandler);

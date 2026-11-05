@@ -1,4 +1,5 @@
 import os
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -15,11 +16,27 @@ from core.Paths import get_default_config_dir
 
 
 class ConfigTab(QWidget):
+    sig_config_saved = Signal(str)
+
     def __init__(self, config_dir=None):
         super().__init__()
         base_cfg_dir = os.path.abspath(config_dir) if config_dir else get_default_config_dir()
         self.cfg_path = os.path.join(base_cfg_dir, "settings.cfg")
         self.initUI()
+        self.load_config()
+
+    def set_config_file(self, filepath: str):
+        if filepath and os.path.isfile(filepath):
+            self.cfg_path = os.path.abspath(filepath)
+            self.path_input.setText(self.cfg_path)
+            self.load_config()
+
+    def set_config_dir(self, config_dir: str):
+        if not config_dir:
+            return
+        candidate = os.path.join(os.path.abspath(config_dir), "settings.cfg")
+        self.cfg_path = candidate
+        self.path_input.setText(self.cfg_path)
         self.load_config()
 
     def initUI(self):
@@ -82,6 +99,7 @@ class ConfigTab(QWidget):
                 os.makedirs(parent_dir, exist_ok=True)
             with open(self.cfg_path, "w", encoding="utf-8") as f:
                 f.write(self.editor.toPlainText())
+            self.sig_config_saved.emit(self.cfg_path)
             QMessageBox.information(self, "Success", "Configuration saved successfully!")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save config:\n{e}")

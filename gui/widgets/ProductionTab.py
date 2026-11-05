@@ -69,6 +69,7 @@ class ProductionTab(QWidget):
         action_group = QGroupBox("2. Run Production")
         action_layout = QVBoxLayout()
         self.chk_wave = QCheckBox("Save Waveform (-w mode)")
+        self.chk_wave.setChecked(True)
         self.btn_batch = QPushButton("⚙️ Run Batch (고속 변환)")
         self.btn_batch.setStyleSheet("background-color: #673AB7; color: white; padding: 10px; font-weight:bold;")
         self.btn_batch.clicked.connect(self.run_batch)
@@ -109,9 +110,29 @@ class ProductionTab(QWidget):
         layout.addStretch()
 
     def browse_file(self):
-        filename, _ = QFileDialog.getOpenFileName(self, "Select Raw File", self.data_dir, "Data Files (*.dat)")
+        start_dir = self.path_ctrl.get_path() or self.data_dir
+        filename, _ = QFileDialog.getOpenFileName(self, "Select Raw File", start_dir, "Data Files (*.dat)")
         if filename:
             self.input_file.setText(filename)
+
+    def set_data_dir(self, new_dir: str):
+        if not new_dir:
+            return
+        self.data_dir = os.path.abspath(new_dir)
+        self.path_ctrl.set_path(self.data_dir, emit_signal=False)
+        self.db.db_dir = self.data_dir
+        self.db.db_path = os.path.join(self.db.db_dir, "fadc500_history.db")
+
+    def set_input_file(self, filepath: str):
+        if filepath:
+            self.input_file.setText(os.path.abspath(filepath))
+
+    def run_auto_batch(self, filepath: str, save_waveform: bool = True):
+        if not filepath or not os.path.exists(filepath):
+            return
+        self.input_file.setText(os.path.abspath(filepath))
+        self.chk_wave.setChecked(save_waveform)
+        self.run_batch()
 
     def run_batch(self):
         infile = self.input_file.text().strip()
@@ -187,6 +208,9 @@ class ProductionTab(QWidget):
             if self.final_stats.get("speed", 0.0) <= 0.0 and elapsed > 0.0 and os.path.exists(infile_path):
                 self.final_stats["speed"] = round((os.path.getsize(infile_path) / 1048576.0) / elapsed, 2)
 
+            self.db.db_dir = self.path_ctrl.get_path() or os.path.dirname(os.path.abspath(self.current_out_file)) or self.data_dir
+            self.db.db_path = os.path.join(self.db.db_dir, "fadc500_history.db")
+            self.db.init_tables()
             self.db.insert_production_summary(
                 run_num=run_num,
                 elapsed=round(elapsed, 2),

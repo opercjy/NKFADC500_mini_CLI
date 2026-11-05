@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
             hv_provider=self.hv_tab.get_current_hv,
             hv_controller=self.hv_tab,
         )
-        self.online_tab = OnlineMonitorTab(data_dir=self.data_output_dir)
+        self.online_tab = OnlineMonitorTab(data_dir=self.data_output_dir, config_dir=self.config_input_dir)
         self.prod_tab = ProductionTab(self.data_output_dir, self.config_input_dir)
         self.tlt_tab = TltTab()
         self.config_tab = ConfigTab(config_dir=self.config_input_dir)
@@ -158,6 +158,16 @@ class MainWindow(QMainWindow):
         self.lbl_rate.setFont(QFont("Consolas", 16, QFont.Bold))
         self.lbl_rate.setStyleSheet("color: #D32F2F;")
         d_layout.addWidget(self.lbl_rate)
+
+        self.lbl_zero_alert = QLabel("⚠️ ZERO TRIGGER (0.0 Hz)\nHV(-1700V) 인가 및 BNC 연결 확인!")
+        self.lbl_zero_alert.setAlignment(Qt.AlignCenter)
+        self.lbl_zero_alert.setWordWrap(True)
+        self.lbl_zero_alert.setStyleSheet(
+            "background-color: #D55E00; color: #FFFFFF; font-weight: bold; font-size: 12px; "
+            "padding: 6px; border-radius: 4px; border: 2px solid #B71C1C;"
+        )
+        self.lbl_zero_alert.setVisible(False)
+        d_layout.addWidget(self.lbl_zero_alert)
 
         d_layout.addWidget(QLabel("Acquired Events:"))
         self.lcd_events = QLCDNumber()
@@ -214,11 +224,39 @@ class MainWindow(QMainWindow):
         self.daq_tab.sig_mode.connect(self.set_daq_mode)
         self.daq_tab.sig_config.connect(self.update_config_summary)
         self.daq_tab.sig_out_file.connect(self.online_tab.set_target_file)
+        self.daq_tab.sig_out_file.connect(self.prod_tab.set_input_file)
         self.daq_tab.sig_run_finished.connect(self.db_tab.load_data)
+        self.daq_tab.sig_data_dir_changed.connect(self._on_data_dir_changed)
+        self.daq_tab.sig_config_dir_changed.connect(self._on_config_dir_changed)
+        self.daq_tab.sig_auto_prod_requested.connect(self.prod_tab.run_auto_batch)
+        self.daq_tab.sig_auto_monitor_requested.connect(self._on_auto_monitor_requested)
 
+        self.config_tab.sig_config_saved.connect(self._on_config_saved)
         self.prod_tab.sig_log.connect(self.append_log)
         self.prod_tab.sig_prod_finished.connect(self.db_tab.load_data)
         self.hv_tab.sig_log.connect(self.append_log)
+
+    def _on_data_dir_changed(self, new_dir: str):
+        self.data_output_dir = os.path.abspath(new_dir)
+        self.online_tab.set_data_dir(self.data_output_dir)
+        self.prod_tab.set_data_dir(self.data_output_dir)
+        self.db_tab.set_data_dir(self.data_output_dir)
+
+    def _on_config_dir_changed(self, new_cfg_dir: str):
+        self.config_input_dir = os.path.abspath(new_cfg_dir)
+        self.online_tab.set_config_dir(self.config_input_dir)
+        self.config_tab.set_config_dir(self.config_input_dir)
+
+    def _on_config_saved(self, saved_cfg_path: str):
+        self.daq_tab.refresh_config_list()
+        if saved_cfg_path and os.path.exists(saved_cfg_path):
+            self.update_config_summary(self.daq_tab.get_config_summary(saved_cfg_path))
+            self.online_tab._load_companion_config(self.online_tab.current_file)
+
+    def _on_auto_monitor_requested(self, target_dat_file: str):
+        self.online_tab.set_target_file(target_dat_file)
+        if not self.online_tab.timer.isActive():
+            self.online_tab.start_monitoring()
 
     def update_clock(self):
         self.clock_lbl.setText(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -233,6 +271,12 @@ class MainWindow(QMainWindow):
             h, rem = divmod(total_sec, 3600)
             m, s = divmod(rem, 60)
             self.lbl_elapsed.setText(f"Elapsed: {h:02d}:{m:02d}:{s:02d}")
+            ev_cnt = int(self.daq_tab.last_stats.get("events", 0))
+            curr_rate = float(self.daq_tab.last_stats.get("rate", 0.0))
+            show_zero_alert = (total_sec >= 5) and (ev_cnt == 0 or curr_rate <= 0.0)
+            self.lbl_zero_alert.setVisible(show_zero_alert)
+        else:
+            self.lbl_zero_alert.setVisible(False)
 
     def update_dashboard(self, stats):
         try:
@@ -368,9 +412,10 @@ class MainWindow(QMainWindow):
 
     def load_ui_settings(self):
         settings = QSettings("NoticeKorea", "NKFADC500_Mini_Config")
+        skip_names = {"ConfigTab_path_input", "DaqTab_input_run", "ProductionTab_input_file"}
         for widget in self.findChildren(QWidget):
             name = widget.objectName()
-            if not name or not settings.contains(name):
+            if not name or name in skip_names or not settings.contains(name):
                 continue
 
             val = settings.value(name)

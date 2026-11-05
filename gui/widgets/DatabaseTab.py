@@ -21,6 +21,13 @@ class DatabaseTab(QWidget):
         self.initUI()
         self.load_data()
 
+    def set_data_dir(self, new_dir: str):
+        if not new_dir:
+            return
+        self.db_dir = os.path.abspath(new_dir)
+        self.db_path = os.path.join(self.db_dir, "fadc500_history.db")
+        self.load_data()
+
     def initUI(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)

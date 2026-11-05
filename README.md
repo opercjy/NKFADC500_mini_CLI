@@ -259,9 +259,9 @@ $$\text{Var}(Q_{\text{lin}}) = N_{\text{gate}}\,\sigma_{\text{base}}^2\left(1 + 
 
 ---
 
-## 5. 디렉토리 구조 및 빌드·실행 가이드 (Build & Execution)
+## 5. 디렉토리 구조, CMake 빌드, 환경변수 등록 및 타 경로 실행 매뉴얼 (Build, Environment & Cross-Directory Execution)
 
-### 디렉토리 구조
+### 5.1 디렉토리 구조
 
 ```text
 NKFADC500_mini_CLI/
@@ -278,31 +278,93 @@ NKFADC500_mini_CLI/
 ├── gui/                          # [PySide6 Master GUI] Qt6 + PyQtGraph 통합 제어 콘솔
 ├── notice_nkfadc500_4/           # [Bundled Vendor SDK] Notice Korea C 로우레벨 드라이버 소스
 ├── config/settings.cfg           # 하드웨어 설정 템플릿
+├── rules/setup_usb.sh            # USB 3.0 udev 권한 설정 스크립트 (99-nkfadc500.rules)
+├── setup_env.sh                  # [Env Setup] PATH, LD_LIBRARY_PATH, ROOT_INCLUDE_PATH 일괄 등록 스크립트
 └── offline_*.cpp                 # CERN ROOT 6 기반 고급 물리 분석 매크로 4종
 ```
 
-### 원클릭 빌드 및 실행
+### 5.2 CMake 빌드 절차 (Step-by-Step Build)
 
-시스템에 `/usr/local/notice` (`$NKHOME`)가 설치되어 있지 않아도 `CMakeLists.txt`가 저장소 내 `notice_nkfadc500_4/` C 드라이버 소스를 자동으로 컴파일하여 `./lib`에 배치하고 상대 `RPATH` (`$ORIGIN/../lib`)로 연결합니다.
+시스템에 `/usr/local/notice` (`$NKHOME`)가 사전 설치되어 있지 않아도 `CMakeLists.txt`가 저장소 내 `notice_nkfadc500_4/` C 드라이버 소스를 자동으로 컴파일하여 `./lib`에 배치하고 상대 `RPATH` (`$ORIGIN/../lib`)로 연결합니다.
 
 ```bash
-# 1. Python GUI 의존성 설치
+# 1. USB 장치(VID=0x0547, PID=0x1502) 일반 사용자 접근 권한 설정 (최초 1회)
+./rules/setup_usb.sh
+
+# 2. Python GUI 의존성 설치
 pip3 install PySide6 pyqtgraph numpy
 
-# 2. C++17 코어 및 Notice SDK 통합 빌드 (root 권한 불필요)
-source /usr/local/bin/thisroot.sh
+# 3. C++17 코어, ROOT 6 Dictionary(libFADC500Objects.so) 및 GUI 런처 통합 빌드
+source /usr/local/bin/thisroot.sh   # 시스템 ROOT 경로에 맞게 로드
 mkdir -p build && cd build
 cmake ..
 cmake --build . -j$(nproc)
 cd ..
-
-# 3-A. PySide6 GUI 마스터 콘솔 실행
-./bin/fadc500_gui
-
-# 3-B. CLI 단독 수집 및 ROOT 프로덕션 실행
-./bin/frontend_nkfadc500 -f config/settings.cfg -o data/run_0001.dat -n 100000 --thr 30
-./bin/production_nkfadc_500 data/run_0001.dat -w
 ```
+
+빌드가 완료되면 다음 산출물이 생성됩니다:
+- **`bin/`**: `frontend_nkfadc500`, `production_nkfadc_500`, `online_nkfadc500`, `fadc500_gui`
+- **`lib/`**: `libFADC500Objects.so`, `libFADC500Objects_rdict.pcm`, `libFADC500Objects.rootmap` (및 내장 빌드 시 `libNoticeNKFADC500.so`, `libusb3com.so`, `libnkusb.so`)
+
+---
+
+### 5.3 환경 변수 등록 매뉴얼 (`setup_env.sh` 및 `~/.bashrc` 영구 등록)
+
+빌드 후 어느 디렉토리에서나 실행 파일(`fadc500_gui`, `frontend_nkfadc500`, `production_nkfadc_500`)과 ROOT 매크로(`offline_*.cpp`)가 공유 라이브러리(`libFADC500Objects.so`, `libNoticeNKFADC500.so`) 및 헤더를 자동으로 찾도록 **환경 변수 설정 스크립트([`setup_env.sh`](./setup_env.sh))**를 제공합니다.
+
+#### (1) 현재 터미널 세션에 즉시 적용
+```bash
+source /home/cpnrdaq4/NKFADC500_mini_CLI/setup_env.sh
+```
+
+#### (2) `~/.bashrc`에 영구 등록 (권장)
+터미널을 새로 열 때마다 자동으로 환경 변수가 로드되도록 아래 명령을 1회 실행합니다:
+```bash
+cat << 'EOF' >> ~/.bashrc
+
+# >>> NKFADC500_mini_CLI Environment Setup >>>
+if [ -f "$HOME/NKFADC500_mini_CLI/setup_env.sh" ]; then
+    source "$HOME/NKFADC500_mini_CLI/setup_env.sh" >/dev/null
+fi
+# <<< NKFADC500_mini_CLI Environment Setup <<<
+EOF
+source ~/.bashrc
+```
+
+#### (3) 등록되는 주요 환경 변수 명세
+
+| 환경 변수명 | 설정 값 예시 | 역할 및 필요성 |
+| :--- | :--- | :--- |
+| **`NKFADC500_ROOT`** | `/home/cpnrdaq4/NKFADC500_mini_CLI` | 프로젝트 루트 절대 경로. 타 디렉토리에서 CLI/GUI 실행 시 기본 `config/settings.cfg` 및 바이너리 위치 탐색 기준점 |
+| **`NKHOME`** | `/usr/local/notice` | Notice Korea 벤더 SDK 루트 경로 (`libNoticeNKFADC500.so`, `libusb3com.so`, `libnkusb.so`) |
+| **`PATH`** | `$NKFADC500_ROOT/bin:$PATH` | 임의의 작업 폴더에서 `./bin/` 접두사 없이 `fadc500_gui`, `frontend_nkfadc500`, `production_nkfadc_500` 직접 실행 |
+| **`LD_LIBRARY_PATH`** | `$NKFADC500_ROOT/lib:$NKHOME/lib:...` | 런타임 동적 링커(`ld.so`) 및 CERN ROOT `Cling` 인터프리터가 `libFADC500Objects.so`와 벤더 `.so`를 로드 |
+| **`ROOT_INCLUDE_PATH`** | `$NKFADC500_ROOT/objects/include:...` | 임의 경로에서 ROOT 대화형 프롬프트나 매크로 실행 시 `RunInfo.hh`, `FadcBD.hh` 헤더 자동 인식 |
+
+---
+
+### 5.4 다른 경로(외부 작업 디렉토리)에서 `fadc500_gui` 및 CLI 실행 시 입출력 동작 규칙
+
+환경 변수(`PATH` 또는 심볼릭 링크) 등록 후 **프로젝트 폴더가 아닌 외부 실험 디렉토리(예: `~/exp_20261106`)에서 실행할 때** 설정 파일(`settings.cfg`)과 데이터 파일(`.dat`, `_cfg.root`, `_prod.root`, `fadc500_history.db`)은 다음 우선순위로 안전하게 입출력됩니다:
+
+1. **기본 실행 (`fadc500_gui` 인자 없이 실행)**:
+   - 실행 위치(현재 작업 디렉토리)와 무관하게 `bin/fadc500_gui`가 `readlink -f`로 실제 저장소 루트(`$NKFADC500_ROOT`)를 역추적합니다.
+   - **Data Output Path**: `$NKFADC500_ROOT/data`
+   - **Config Input Path**: `$NKFADC500_ROOT/config` (`settings.cfg`)
+2. **특정 실험 폴더 지정 실행 (`fadc500_gui /path/to/my_run_dir` 또는 `fadc500_gui .`)**:
+   - **Data Output Path**: 지정한 `/path/to/my_run_dir`로 자동 설정되며, 수집된 `.dat`, `_cfg.root`, `.cfg` 백업, `_prod.root` 및 런 이력 DB(`fadc500_history.db`)가 모두 해당 폴더에 저장됩니다.
+   - **Config Input Path**: `/path/to/my_run_dir/config` 폴더가 존재하면 해당 폴더를 우선 로드하고, 없으면 표준 `$NKFADC500_ROOT/config` (`settings.cfg`)를 자동으로 참조합니다.
+3. **GUI 내부에서 `📂 Browse`로 경로를 변경한 경우 (전 탭 실시간 동기화)**:
+   - `🚀 DAQ Control` 탭에서 `📁 Data Output Path`를 변경하면 **`👁️ Online Monitor`**, **`🛠️ Production`**, **`🗄️ Run Database`** 탭의 대상 경로와 SQLite DB(`fadc500_history.db`)가 즉시 새 폴더로 동기화됩니다.
+   - `⚙️ Config Input Path`를 변경하거나 `⚙️ Hardware Config` 탭에서 `💾 Save Configuration`을 누르면 `🚀 DAQ Control`의 설정 목록·우측 대시보드 요약표·`👁️ Online Monitor`의 디코딩 파라미터(`DLY`, `POL`, `THR`, `SAMPLING_RATE`)가 즉시 갱신됩니다.
+4. **외부 폴더에서 CLI 직접 실행 시**:
+   ```bash
+   mkdir -p ~/my_exp && cd ~/my_exp
+   # -f 생략 시에도 ./config/settings.cfg -> $NKFADC500_ROOT/config/settings.cfg 순서로 자동 탐색!
+   frontend_nkfadc500 -o run_0001.dat -t 60
+   # run_0001.dat 옆에 자동 생성된 run_0001_cfg.root (및 run_0001.cfg)를 읽어 정확히 변환!
+   production_nkfadc_500 run_0001.dat -w
+   ```
 
 ---
 
@@ -420,24 +482,50 @@ printf("Ch0 THR = %d ADC, DLY = %d ns, HW PED = %d ADC\n", bd->GetTHR(0), bd->Ge
 
 ---
 
-### 11.2 실제 검출기 측정 파형 및 CERN ROOT 오프라인 물리 분석 화면 (Measured Detector Data Plots — ORTEC `-1700 V`, `Ch 0`)
+### 11.2 실제 방사성 선원($^{60}\text{Co}$, $^{137}\text{Cs}$, `BKG`) 측정 파형 및 CERN ROOT 오프라인 물리 분석 화면 (Measured Detector Data Plots — ORTEC `-1700 V`, `Ch 0`)
 
-아래 화면들은 측정 컴퓨터(`cpnrdaq4`)에서 구형 `NKFADC500 Mini` (`SID=1`, $500\text{ MS/s}$, $12\text{-bit}$, $2.5\text{ V}_{\text{pp}}$)의 **전면 `1`번 포트(`Ch 0`)에 BNC 케이블로 검출기를 단독 연결하고 수동 ORTEC 고전압 공급기로 `-1700 V`를 인가**하여 실제 수집·변환한 데이터(`hv1700_ch0_thr40_prod.root`, `hv1700_ch1_check_prod.root`)로부터 생성된 실시간 파형, 단일 광전자(SPE)/다중 광전자 피팅, 컴프턴 엣지(Compton Edge) 피팅, 및 2D 파형 잔상(Persistence) 실측 결과입니다.
+아래 화면들은 측정 컴퓨터(`cpnrdaq4`)에서 구형 `NKFADC500 Mini` (`SID=1`, $500\text{ MS/s}$, $12\text{-bit}$, $2.5\text{ V}_{\text{pp}}$)의 **전면 `1`번 포트(`Ch 0`)에 Hamamatsu H7195 2인치 PMT(수동 ORTEC `-1700 V`) + 액체섬광체(`EDA_CA`)를 연결하고 $^{60}\text{Co}$ ($1.173 / 1.332\text{ MeV}\ \gamma$) 방사성 선원을 조사**하여 실제 수집·변환한 데이터로부터 생성된 실시간 파형, 교육·진단 대시보드, 단일 광전자(SPE) 피팅, 2D 파형 잔상(Persistence), 및 $^{60}\text{Co}$ 컴프턴 엣지(Compton Edge) 피팅 실측 결과입니다.
 
 1. **실시간 4채널 파형 및 전하 스펙트럼 모니터 (`online_nkfadc500` — `Ch 0` `-1700 V` 음극성 PMT 펄스 및 `Ch 1–3` 베이스라인 대조)**:
    <img width="1620" alt="FADC500 LIVE Waveform & Spectrum Monitor (ORTEC -1700V on Ch0)" src="./docs/images/exp_01_live_waveform_monitor.png" />
 
-2. **교육·진단용 6-Pad 종합 대시보드 및 사건 간 도착 시간차 $\Delta t$ 분포 (`offline_anal_edu.cpp`)**:
-   <img width="1600" alt="NKFADC500 Educational Analysis Dashboard (Ch0 HV -1700V)" src="./docs/images/exp_02_offline_anal_edu.png" />
+2. **교육·진단용 6-Pad 종합 대시보드 — $^{60}\text{Co}$ 감마선 2D 파형 잔상(LogZ), 파고 분포, 사건 간 도착 시간차 $\Delta t$ (푸아송 과정), 및 적분 전하 스펙트럼 (`offline_anal_edu.cpp`)**:
+   <img width="1650" alt="NKFADC500 Educational Analysis Dashboard (Ch0 60Co Source)" src="./docs/images/exp_02_offline_anal_edu.png" />
 
 3. **저전하 영역 다중 광전자(Pedestal + 1PE + 2PE) `MINUIT2` 피팅 및 이득 교정 (`offline_spe.cpp`)**:
    <img width="1400" alt="Advanced PMT SPE Calibration (Ch0 HV -1700V)" src="./docs/images/exp_03_offline_spe.png" />
 
-4. **채널 0 파형 잔상(Persistence, 주 펄스 `t=374 ns` 및 후속 이온 애프터펄스 관측), 진폭·전하 분포 및 2D 상관관계 분석 (`offline_anal_500.cpp`)**:
-   <img width="1400" alt="Channel 0 Comprehensive Analysis (Ch0 HV -1700V)" src="./docs/images/exp_04_offline_anal_500.png" />
+4. **채널 0 $^{60}\text{Co}$ 감마선 2D 파형 잔상(Persistence, 주 펄스 `t=372 ns`), 진폭·전하 분포 및 2D 상관관계 분석 (`offline_anal_500.cpp`)**:
+   <img width="1450" alt="Channel 0 Comprehensive 60Co Analysis (Ch0 HV -1700V)" src="./docs/images/exp_04_offline_anal_500.png" />
 
-5. **전하 연속체 끝단(Compton Edge) 상보 오차함수($\text{erfc}$) 정밀 피팅 (`offline_compton_edge.cpp`)**:
-   <img width="1000" alt="Compton Edge Solver (Ch0 HV -1700V)" src="./docs/images/exp_05_offline_compton_edge.png" />
+5. **$^{60}\text{Co}$ 감마선 전하 연속체 능선($Q_{\text{ridge}} = 9.75\text{ pC}$) 및 컴프턴 엣지($Q_{\text{CE}} = 12.51\text{ pC}$) 상보 오차함수($\text{erfc}$) 정밀 피팅 (`offline_compton_edge.cpp`)**:
+   <img width="1100" alt="60Co Compton Edge Solver (Ch0 HV -1700V)" src="./docs/images/exp_05_offline_compton_edge.png" />
+
+---
+
+### 11.3 액체섬광체 5종 농도(`3000, 1000, 500, 150, 50 mg/L`) × 3종 선원(`BKG`, $^{137}\text{Cs}$, $^{60}\text{Co}$) 광대역 전하 스펙트럼, 파형 산점도 및 12단 다이노드 `ngspice` 등가회로 검증 (`Run 160`, 15 Subruns, 990,248 Events)
+
+1. **5종 농도별(`3 g/L` ~ `50 mg/L`) 광대역(`0–264 pC`) 펄스 적분 전하 스펙트럼 (저전하 $^{60}\text{Co}$ 컴프턴 능선·엣지 및 고전하 우주선 뮤온 영역 분리)**:
+   <img width="1600" alt="Wide-range Charge Spectra by Concentration (3000, 1000, 500, 150, 50 mg/L)" src="./docs/images/fig_charge_spectra_by_conc.png" />
+
+2. **선원 조건별 광대역 스펙트럼, 배경 차감 순수 $^{60}\text{Co}$ 컴프턴 연속 능선·엣지(`4–36 pC`) 및 우주선 고전하 연속체(`50–260 pC`) 비교**:
+   <img width="1600" alt="Charge Spectra by Source and Background-Subtracted 60Co Compton Continuum" src="./docs/images/fig_charge_spectra_by_source.png" />
+
+3. **전 농도·선원(15개 런) $1\ \mu\text{s}$ (`0–992 ns`) 전압 강하 시계열 국소 빈도 산점도(`ax.scatter`) 및 앙상블 평균 파형 궤적**:
+   <img width="1600" alt="1 us Voltage Drop Time-Series Scatter across 5 Concentrations x 3 Sources" src="./docs/images/fig_voltage_drop_timeseries_scatter.png" />
+
+4. **피크 구간(`330–470 ns`) 농도별·선원별 앙상블 평균 파형 궤적 및 상위 10% 포락선($P_{10}$) 비교**:
+   <img width="1600" alt="Ensemble Mean Waveform Trajectories by Concentration and Source" src="./docs/images/fig_mean_waveform_trajectories.png" />
+
+5. **농도별 트리거 계수율(`Hz`), 평균·중앙 적분 전하($Q\ [\text{pC}]$) 추이 및 파형 형상 변별(PSD Ratio) 분포**:
+   <img width="1600" alt="Trigger Rate, Charge Trends, and PSD Distribution across 5 Concentrations" src="./docs/images/fig_psd_and_summary_trends.png" />
+
+6. **Hamamatsu H7195 12단 다이노드 기생 LC 등가회로(`ngspice 41`) 시뮬레이션 및 실측 파형 후미 `125 MHz` (`T = 8.0 ns`) 리플 검증**:
+   <img width="1600" alt="Hamamatsu H7195 12-Stage Dynode ngspice Validation" src="./docs/images/fig_ngspice_h7195_fadc500_validation.png" />
+
+7. **`NKFADC500 Mini` FPGA 내부 트리거 파이프라인(`DLY +80 ns` 오프셋) 및 사이클 정밀 디지털 로직(`10101010`) 타이밍 다이어그램**:
+   <img width="1600" alt="FPGA Trigger Pipeline Timing and Telemetry" src="./docs/images/fig_fpga_timing_and_telemetry.png" />
+   <img width="1600" alt="FPGA Cycle-Accurate Digital Logic Timing and 16-bit TLT Truth Table" src="./docs/images/fig_fpga_digital_logic_timing.png" />
 
 ---
 

@@ -1,12 +1,14 @@
 #include <algorithm>
 #include <iostream>
+#include <string>
 #include "TCanvas.h"
 #include "TCut.h"
+#include "TF1.h"
 #include "TFile.h"
 #include "TH1F.h"
 #include "TH2F.h"
-#include "TLegend.h"
 #include "TLeaf.h"
+#include "TLegend.h"
 #include "TLine.h"
 #include "TPaveText.h"
 #include "TString.h"
@@ -20,15 +22,32 @@ TString ResolveEduBranch(TTree* tree, const char* base, int ch) {
     if (tree->GetBranch(scalarName)) return scalarName;
     return Form("%s[%d]", base, ch);
 }
+
+TString ResolveDefaultEduFile(const char* requested) {
+    if (requested && !gSystem->AccessPathName(requested)) {
+        return TString(requested);
+    }
+    const char* fallbacks[] = {
+        "data/20261104_160_temp_EDA_CA_1000_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
+        "data/20261104_160_temp_EDA_CA_50_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
+        "data/hv1700_ch0_thr40_prod.root",
+        "data/run_101_prod.root"
+    };
+    for (const char* fb : fallbacks) {
+        if (!gSystem->AccessPathName(fb)) return TString(fb);
+    }
+    return TString(requested ? requested : "");
+}
 } // namespace
 
 // NOTICE NKFADC500 Mini nominal input: 12-bit (4096), 2.5 Vpp (+/-1.25 V into 50 Ohm), 500 MS/s (2.0 ns/sample)
-// -> 1 ADC = 0.61035 mV, 1 ADC*sample = (2.5 V / 4096) * (2.0 ns / 50 Ohm) = 0.0244140625 pC
-void offline_anal_edu(const char* filename = "data/run_101_prod.root",
+// -> 1 ADC = 0.6103515625 mV, 1 ADC*sample = (2.5 V / 4096) * (2.0 ns / 50 Ohm) = 0.0244140625 pC
+void offline_anal_edu(const char* filename = "data/20261104_160_temp_EDA_CA_1000_ml_per_l_60co_hv_1700_thr_30_min_20_prod.root",
                       int targetCh = 0,
-                      double ampCut = 50.0,
-                      double dtCut_us = 10.0,
-                      double vpp = 2.5) {
+                      double ampCut = 45.0,
+                      double dtCut_us = 250.0,
+                      double vpp = 2.5,
+                      const char* savePng = "") {
     if (targetCh < 0 || targetCh > 3) {
         std::cerr << "\033[1;31m[ERROR]\033[0m targetCh must be in [0, 3]." << std::endl;
         return;
@@ -40,9 +59,10 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
         gSystem->Load("lib/libFADC500Objects.so");
     }
 
-    TFile* f = TFile::Open(filename, "READ");
+    const TString resolvedFile = ResolveDefaultEduFile(filename);
+    TFile* f = TFile::Open(resolvedFile.Data(), "READ");
     if (!f || f->IsZombie()) {
-        std::cerr << "\033[1;31m[ERROR]\033[0m Cannot open file: " << filename << std::endl;
+        std::cerr << "\033[1;31m[ERROR]\033[0m Cannot open file: " << resolvedFile << std::endl;
         return;
     }
     TTree* tree = dynamic_cast<TTree*>(f->Get("PROD"));
@@ -61,7 +81,7 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     if (dt_ns <= 0.0) dt_ns = 2.0;
 
     const double maxTime = ndp * dt_ns;
-    const double adc_to_pc = (vpp / 4096.0) * (dt_ns / 50.0) * 1000.0; // pC per (ADC * sample)
+    const double adc_to_pc = (vpp / 4096.0) * (dt_ns / 50.0) * 1000.0; // 0.0244140625 pC per (ADC * sample)
 
     const TString brAmp = ResolveEduBranch(tree, "Amplitude", targetCh);
     const TString brChg = ResolveEduBranch(tree, "Charge", targetCh);
@@ -70,23 +90,23 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     const TString brPsd = Form("PsdRatio_Ch%d", targetCh);
     const TString brQtot = Form("Qtotal_Ch%d", targetCh);
 
-    const double obsMaxAmp = std::max(100.0, tree->GetMaximum(brAmp.Data()));
-    const double obsMaxPc  = std::max(20.0, tree->GetMaximum(brChg.Data()) * adc_to_pc);
-    const double maxAmpAxis = std::min(4200.0, std::max(250.0, (obsMaxAmp > 300.0 ? 280.0 : obsMaxAmp * 1.15)));
-    const double maxPcAxis  = std::min(1500.0, std::max(45.0, (obsMaxPc > 60.0 ? 50.0 : obsMaxPc * 1.15)));
+    const double maxAmpAxis = 350.0;
+    const double maxPcAxis  = 45.0; // Focus on 60Co Compton continuum & edge (0..45 pC)
 
-    TCanvas* c1 = new TCanvas("c1", "NKFADC500 Educational Analysis Dashboard", 1600, 1000);
+    TCanvas* c1 = new TCanvas("c1", "NKFADC500 Educational Analysis Dashboard (60Co Source)", 1650, 1020);
     c1->Divide(3, 2);
 
-    // 1. Waveform Persistence or PSD Scatter
+    // 1. Waveform Persistence (LogZ) or PSD Scatter
     c1->cd(1);
     gPad->SetGrid();
-    gPad->SetRightMargin(0.12);
+    gPad->SetLogz();
+    gPad->SetRightMargin(0.13);
     if (tree->GetBranch(brWaveDrop) && tree->GetBranch(brWaveTime)) {
-        tree->Draw(Form("%s:%s>>hWave2D(%d, 0, %f, 200, -30, %f)",
-                        brWaveDrop.Data(), brWaveTime.Data(), ndp, maxTime, maxAmpAxis), "", "colz");
+        tree->Draw(Form("%s:%s>>hWave2D(%d, 0, %f, 200, -25, %f)",
+                        brWaveDrop.Data(), brWaveTime.Data(), ndp, maxTime, maxAmpAxis),
+                   "Entry$ < 25000", "colz");
         if (TH2F* hWave2D = dynamic_cast<TH2F*>(gDirectory->Get("hWave2D"))) {
-            hWave2D->SetTitle(Form("1. Waveform Persistence (Ch %d);Time (ns);Voltage Drop (ADC)", targetCh));
+            hWave2D->SetTitle(Form("1. Waveform Persistence (Ch %d, ^{60}Co #gamma);Time (ns);Voltage Drop (ADC)", targetCh));
             hWave2D->SetStats(0);
         }
     } else if (tree->GetBranch(brPsd) && tree->GetBranch(brQtot)) {
@@ -104,20 +124,22 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
     gPad->SetLogy();
     tree->Draw(Form("%s>>hAmp(150, 0, %f)", brAmp.Data(), maxAmpAxis), "", "HIST");
     if (TH1F* hAmp = dynamic_cast<TH1F*>(gDirectory->Get("hAmp"))) {
-        hAmp->SetTitle("2. Amplitude Distribution;Amplitude (ADC);Counts");
+        hAmp->SetTitle("2. Pulse Amplitude Distribution (^{60}Co);Amplitude (ADC) [0.61 mV/ADC];Counts");
+        hAmp->SetLineColor(kAzure + 2);
         hAmp->SetFillColor(kAzure - 9);
-        TLine* lineAmp = new TLine(ampCut, 0.5, ampCut, std::max(1.0, hAmp->GetMaximum()));
-        lineAmp->SetLineColor(kRed);
+        TLine* lineAmp = new TLine(ampCut, 0.5, ampCut, std::max(1.0, hAmp->GetMaximum() * 1.5));
+        lineAmp->SetLineColor(kRed + 1);
         lineAmp->SetLineWidth(2);
         lineAmp->SetLineStyle(2);
         lineAmp->Draw("SAME");
     }
 
-    // 3. Delta T (Inter-event arrival time difference, guarded against unsigned wrap)
+    // 3. Delta T (Inter-event arrival time difference -> Poisson exponential decay)
     c1->cd(3);
     gPad->SetGrid();
     gPad->SetLogy();
-    TH1F* hDeltaT = new TH1F("hDeltaT", "3. Time Between Events (#Delta t);#Delta t (#mu s);Counts", 120, 0, 40000);
+    TH1F* hDeltaT = new TH1F("hDeltaT", "3. Inter-Event Arrival Time (#Delta t, Poisson Process);#Delta t (#mu s);Counts", 120, 0, 45000);
+    hDeltaT->SetLineColor(kTeal + 3);
     hDeltaT->SetFillColor(kTeal - 9);
 
     if (TBranch* brTrig = tree->GetBranch("LocalTriggerTime")) {
@@ -141,21 +163,21 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
         }
     }
     hDeltaT->Draw("HIST");
-    TLine* lineDt = new TLine(dtCut_us, 0.5, dtCut_us, std::max(1.0, hDeltaT->GetMaximum()));
-    lineDt->SetLineColor(kMagenta);
+    TLine* lineDt = new TLine(dtCut_us, 0.5, dtCut_us, std::max(1.0, hDeltaT->GetMaximum() * 1.5));
+    lineDt->SetLineColor(kMagenta + 1);
     lineDt->SetLineWidth(2);
     lineDt->SetLineStyle(2);
     lineDt->Draw("SAME");
 
-    // 4. Charge Spectrum in pC
+    // 4. Charge Spectrum in pC (60Co Compton Continuum & Edge)
     c1->cd(4);
     gPad->SetGrid();
     gPad->SetLogy();
     tree->Draw(Form("%s * %.10f>>hChargeRaw(150, 0, %f)", brChg.Data(), adc_to_pc, maxPcAxis), "", "HIST");
     TH1F* hChargeRaw = dynamic_cast<TH1F*>(gDirectory->Get("hChargeRaw"));
     if (hChargeRaw) {
-        hChargeRaw->SetTitle("4. Charge Spectrum (Raw vs Amp Cut);Charge (pC);Counts");
-        hChargeRaw->SetLineColor(kGray + 1);
+        hChargeRaw->SetTitle("4. ^{60}Co Compton Charge Spectrum (Raw vs Amp Cut);Pulse Integral Charge Q (pC);Counts");
+        hChargeRaw->SetLineColor(kGray + 2);
         hChargeRaw->SetFillColor(kGray + 1);
         hChargeRaw->SetFillStyle(3004);
     }
@@ -169,38 +191,43 @@ void offline_anal_edu(const char* filename = "data/run_101_prod.root",
         hChargeCut->SetFillStyle(1001);
     }
 
-    TLegend* leg1 = new TLegend(0.34, 0.74, 0.66, 0.88);
-    if (hChargeRaw) leg1->AddEntry(hChargeRaw, "Raw (All)", "f");
+    TLegend* leg1 = new TLegend(0.35, 0.74, 0.68, 0.88);
+    if (hChargeRaw) leg1->AddEntry(hChargeRaw, "Raw (THR = 30 ADC)", "f");
     if (hChargeCut) leg1->AddEntry(hChargeCut, Form("Amp > %.0f ADC", ampCut), "f");
     leg1->Draw();
 
     // 5. Amplitude vs Charge 2D Scatter
     c1->cd(5);
     gPad->SetGrid();
-    gPad->SetRightMargin(0.12);
+    gPad->SetLogz();
+    gPad->SetRightMargin(0.13);
     tree->Draw(Form("%s:(%s * %.10f)>>h2D(150, 0, %f, 150, 0, %f)",
                     brAmp.Data(), brChg.Data(), adc_to_pc, maxPcAxis, maxAmpAxis), "", "colz");
     if (TH2F* h2D = dynamic_cast<TH2F*>(gDirectory->Get("h2D"))) {
-        h2D->SetTitle("5. Amp vs Charge Scatter;Charge (pC);Amplitude (ADC)");
+        h2D->SetTitle("5. Amplitude vs Charge 2D Correlation;Pulse Integral Charge Q (pC);Amplitude (ADC)");
         h2D->SetStats(0);
     }
 
-    // 6. Educational Hardware & Physics Summary
+    // 6. Educational Hardware & Radioactive Source Physics Summary
     c1->cd(6);
-    TPaveText* pt = new TPaveText(0.08, 0.10, 0.92, 0.90);
-    pt->AddText("[NKFADC500 Mini Educational Summary]");
+    TPaveText* pt = new TPaveText(0.06, 0.08, 0.94, 0.92);
+    pt->AddText("[NKFADC500 Mini Educational Summary - ^{60}Co #gamma Run]");
     pt->AddText(" ");
-    pt->AddText(Form("- Hardware: 12-bit (4096), %.1f Vpp (50 #Omega), %.0f MS/s", vpp, 1000.0 / dt_ns));
-    pt->AddText(Form("- 1 ADC = %.4f mV | 1 ADC*sample = %.5f pC", (vpp * 1000.0) / 4096.0, adc_to_pc));
-    pt->AddText(Form("- Target Channel : %d (N_{s} = %d samples)", targetCh, ndp));
-    pt->AddText(Form("- Amp Cut: > %.1f ADC (Suppresses Baseline Noise)", ampCut));
-    pt->AddText(Form("- Time Cut: > %.1f #mus (Suppresses PMT Afterpulses)", dtCut_us));
+    pt->AddText(Form("- Digitizer: 12-bit (4096), %.1f Vpp (50 #Omega), %.0f MS/s (#Deltat = %.1f ns)", vpp, 1000.0 / dt_ns, dt_ns));
+    pt->AddText(Form("- Calibration: 1 ADC = %.4f mV | 1 ADC*sample = %.5f pC", (vpp * 1000.0) / 4096.0, adc_to_pc));
+    pt->AddText(Form("- Detector: Hamamatsu H7195 PMT (-1700 V) + EDA_CA Liquid Scintillator"));
+    pt->AddText(Form("- Source: ^{60}Co (1.173 / 1.332 MeV #gamma, Compton Edge E_{CE} = 0.963 / 1.118 MeV)"));
+    pt->AddText(Form("- Events: %lld evts | Peak Timing: t_{peak} = 372.0 ns (DLY = 400 ns)", tree->GetEntries()));
+    pt->AddText(Form("- Cuts: Amp > %.1f ADC (Noise) | #Deltat > %.0f #mus (Afterpulse Check)", ampCut, dtCut_us));
     pt->SetFillColor(kWhite);
     pt->SetShadowColor(kWhite);
     pt->SetTextFont(42);
-    pt->SetTextSize(0.042);
+    pt->SetTextSize(0.038);
     pt->Draw();
 
     c1->Modified();
     c1->Update();
+    if (savePng && std::string(savePng).size() > 0) {
+        c1->SaveAs(savePng);
+    }
 }

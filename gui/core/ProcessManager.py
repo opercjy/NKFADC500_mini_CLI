@@ -48,9 +48,12 @@ class ProcessManager(QObject):
 
         root_dir = get_project_root()
         lib_dir = os.path.join(root_dir, "lib")
+        notice_lib = os.path.join(os.environ.get("NKHOME", "/usr/local/notice"), "lib")
         env = QProcessEnvironment.systemEnvironment()
         existing_ld = env.value("LD_LIBRARY_PATH", "")
-        env.insert("LD_LIBRARY_PATH", f"{lib_dir}:{existing_ld}" if existing_ld else lib_dir)
+        ld_parts = [p for p in (lib_dir, notice_lib, existing_ld) if p]
+        env.insert("LD_LIBRARY_PATH", ":".join(ld_parts))
+        env.insert("NKFADC500_ROOT", root_dir)
         self.process.setProcessEnvironment(env)
         self.process.setWorkingDirectory(root_dir)
 

@@ -32,6 +32,10 @@ class DaqTab(QWidget):
     sig_config = Signal(str)
     sig_out_file = Signal(str)
     sig_run_finished = Signal()
+    sig_data_dir_changed = Signal(str)
+    sig_config_dir_changed = Signal(str)
+    sig_auto_prod_requested = Signal(str, bool)
+    sig_auto_monitor_requested = Signal(str)
 
     def __init__(self, data_dir, config_dir, hv_provider=None, hv_controller=None):
         super().__init__()
@@ -110,6 +114,22 @@ class DaqTab(QWidget):
         self.input_cmt = QLineEdit()
         self.input_cmt.setPlaceholderText("Enter run description...")
         cfg_layout.addWidget(self.input_cmt, 3, 1, 1, 2)
+
+        self.lbl_file_preview = QLabel("📄 Target File: --")
+        self.lbl_file_preview.setStyleSheet("color: #0072B2; font-family: Consolas; font-size: 12px; font-weight: bold;")
+        cfg_layout.addWidget(self.lbl_file_preview, 4, 0, 1, 3)
+
+        auto_opt_lay = QHBoxLayout()
+        self.cb_auto_prod = QCheckBox("⚙️ 측정 종료 시 자동으로 ROOT Production (-w 파형 포함) 실행")
+        self.cb_auto_prod.setChecked(True)
+        self.cb_auto_prod.setStyleSheet("color: #6A1B9A; font-weight: bold; font-size: 12px;")
+        self.cb_auto_monitor = QCheckBox("👁️ DAQ 시작 시 Online Monitor 실시간 연동")
+        self.cb_auto_monitor.setChecked(True)
+        self.cb_auto_monitor.setStyleSheet("color: #009E73; font-weight: bold; font-size: 12px;")
+        auto_opt_lay.addWidget(self.cb_auto_prod)
+        auto_opt_lay.addWidget(self.cb_auto_monitor)
+        auto_opt_lay.addStretch()
+        cfg_layout.addLayout(auto_opt_lay, 5, 0, 1, 3)
 
         cfg_group.setLayout(cfg_layout)
         layout.addWidget(cfg_group)
@@ -369,12 +389,43 @@ class DaqTab(QWidget):
         for f in sorted(cfg_files):
             self.combo_cfg.addItem(f, os.path.join(current_cfg_dir, f))
 
+        if self.combo_cfg.count() > 0:
+            self.sig_config.emit(self.get_config_summary(self.combo_cfg.currentData()))
+        self._update_file_preview()
         self.sig_log.emit(f"\033[1;32m[SYSTEM] {len(cfg_files)}개의 하드웨어 설정 파일을 로드했습니다.\033[0m", False)
+
+    def _update_file_preview(self):
+        if hasattr(self, "lbl_file_preview"):
+            preview_path = self.generate_out_filename(1)
+            self.lbl_file_preview.setText(f"📄 Target File: {preview_path}")
+
+    def _on_data_path_changed(self, new_dir: str):
+        self.data_dir = os.path.abspath(new_dir)
+        os.makedirs(self.data_dir, exist_ok=True)
+        self.db = DatabaseManager(data_dir=self.data_dir)
+        self.input_run.setText(self.db.get_latest_run_number())
+        self._update_file_preview()
+        self.sig_data_dir_changed.emit(self.data_dir)
+        self.sig_log.emit(f"\033[1;36m[PATH] Data Output Directory 변경됨: {self.data_dir}\033[0m", False)
+
+    def _on_config_path_changed(self, new_dir: str):
+        self.config_dir = os.path.abspath(new_dir)
+        self.refresh_config_list()
+        self.sig_config_dir_changed.emit(self.config_dir)
+        self.sig_log.emit(f"\033[1;36m[PATH] Config Input Directory 변경됨: {self.config_dir}\033[0m", False)
 
     def connectSignals(self):
         self.btn_start_man.clicked.connect(lambda: self.start_manual(1))
         self.btn_stop_man.clicked.connect(self.stop_daq)
         self.btn_scan.clicked.connect(self.start_scan)
+        self.path_data.pathChanged.connect(self._on_data_path_changed)
+        self.path_config.pathChanged.connect(self._on_config_path_changed)
+        self.input_prefix.textChanged.connect(lambda _: self._update_file_preview())
+        self.input_run.textChanged.connect(lambda _: self._update_file_preview())
+        self.combo_cfg.currentIndexChanged.connect(
+            lambda _: self.sig_config.emit(self.get_config_summary(self.combo_cfg.currentData()))
+            if self.combo_cfg.currentData() else None
+        )
 
         self.daq_manager.log_signal.connect(lambda msg, is_err: self.sig_log.emit(msg, is_err))
         self.daq_manager.stat_signal.connect(self.update_stats)
@@ -576,6 +627,17 @@ class DaqTab(QWidget):
 
         self.current_subrun = subrun_idx
         self.current_out_file = self.generate_out_filename(subrun_idx)
+        if subrun_idx == 1 and os.path.exists(self.current_out_file):
+            reply = QMessageBox.question(
+                self,
+                "Output File Exists (덮어쓰기 확인)",
+                f"동일한 이름의 데이터 파일이 이미 존재합니다:\n\n{self.current_out_file}\n\n"
+                "기존 파일을 덮어쓰시겠습니까? (No 선택 시 취소됩니다)",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.No:
+                return
         self.last_stats = {"events": 0, "size": 0.0, "rate": 0.0}
 
         bin_path = get_bin_path("frontend_nkfadc500")
@@ -598,6 +660,8 @@ class DaqTab(QWidget):
             else f"{prefix}_{self.input_run.text()}"
         )
         self.sig_out_file.emit(self.current_out_file)
+        if self.cb_auto_monitor.isChecked():
+            self.sig_auto_monitor_requested.emit(self.current_out_file)
         self.sig_mode.emit(f"RUN [{run_str}]")
         self.sig_config.emit(self.get_config_summary(cfg_file))
 
@@ -651,6 +715,8 @@ class DaqTab(QWidget):
         self.current_out_file = os.path.join(target_dir, f"{prefix}_{self.input_run.text()}_thr{curr_thr}.dat")
 
         self.sig_out_file.emit(self.current_out_file)
+        if self.cb_auto_monitor.isChecked():
+            self.sig_auto_monitor_requested.emit(self.current_out_file)
         self.sig_mode.emit(f"SCAN [THR={curr_thr}]")
         self.sig_config.emit(self.get_config_summary(self.combo_cfg.currentData(), thr_override=curr_thr))
 
@@ -709,7 +775,18 @@ class DaqTab(QWidget):
             )
             self.sig_log.emit("\033[1;32m[DB] Run summary safely stored to SQLite database.\033[0m", False)
             self.sig_run_finished.emit()
+            finished_file = self.current_out_file
+            finished_events = int(self.last_stats.get("events", 0))
             self.start_time = None
+
+            if (
+                not self.abort_requested
+                and self.cb_auto_prod.isChecked()
+                and finished_file
+                and os.path.exists(finished_file)
+                and finished_events > 0
+            ):
+                self.sig_auto_prod_requested.emit(finished_file, True)
 
             if not self.abort_requested and self.auto_mode == "MANUAL" and self.current_subrun < self.max_subruns:
                 idle = self.spin_idle.value()
